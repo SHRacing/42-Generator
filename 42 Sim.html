@@ -1,0 +1,1738 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Monte Carlo simulator for Texas 42 dominoes: choose contracts and house rules, run 100 to 100,000 hands or games, and chart how often each bid comes up and gets made.">
+<style>
+:root { color-scheme: light; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+</style>
+<title>Texas 42 Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&family=Zilla+Slab:wght@500;600;700&display=swap">
+<style>
+/* Layout: a control rail on the left like a scorepad, the results board on the right; stacks to one column on phones */
+:root {
+  --bg: #eceef0; --panel: #fbfbfa; --panel-2: #f2f3f4; --ink: #14171b; --ink-2: #4b5058; --muted: #7c8189;
+  --line: #dcdfe3; --grid: #e6e8ea; --axis: #c4c8cd; --focus: #2a78d6;
+  --s1: #2a78d6; --s2: #eb6834; --ref: #b5b9bf;
+  --tile: #fbfaf4; --tile-edge: #c9c6b8; --pip: #16181b; --tile-line: #a8a497;
+  --good: #006300; --bad: #b83232; --hilite: rgba(42,120,214,.12);
+  --f-display: "Zilla Slab", Rockwell, Georgia, serif;
+  --f-body: "Source Sans 3", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1113; --panel: #181a1d; --panel-2: #1f2226; --ink: #eef0f2; --ink-2: #c1c5cb; --muted: #8b9097;
+    --line: #2c3035; --grid: #24272b; --axis: #3b3f45; --focus: #5598e7;
+    --s1: #3987e5; --s2: #d95926; --ref: #5b6068;
+    --tile: #0b0c0d; --tile-edge: #3d4147; --pip: #f1f1ec; --tile-line: #4b4f56;
+    --good: #0ca30c; --bad: #e66767; --hilite: rgba(57,135,229,.18);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1113; --panel: #181a1d; --panel-2: #1f2226; --ink: #eef0f2; --ink-2: #c1c5cb; --muted: #8b9097;
+  --line: #2c3035; --grid: #24272b; --axis: #3b3f45; --focus: #5598e7;
+  --s1: #3987e5; --s2: #d95926; --ref: #5b6068;
+  --tile: #0b0c0d; --tile-edge: #3d4147; --pip: #f1f1ec; --tile-line: #4b4f56;
+  --good: #0ca30c; --bad: #e66767; --hilite: rgba(57,135,229,.18);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.45; }
+.wrap { max-width: 1320px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 48px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* header */
+.masthead { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding-block: 4px 18px; }
+.masthead h1 { font-size: clamp(28px, 4vw, 40px); font-weight: 700; letter-spacing: -.01em; line-height: 1; }
+.masthead p { margin: 4px 0 0; color: var(--ink-2); max-width: 62ch; }
+.masthead .tile-lg { flex: none; }
+
+.layout { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+/* control rail */
+.rail { display: grid; gap: 14px; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); }
+@media (max-width: 900px) { .rail { position: static; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+.panel h2 { font-size: 17px; font-weight: 600; margin-bottom: 10px; }
+.eyebrow { font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.run-row { display: flex; gap: 8px; align-items: stretch; }
+.run-row input[type=number] { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 600; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel-2); }
+.seg button { border: 0; background: transparent; padding: 6px 11px; cursor: pointer; color: var(--ink-2); font-weight: 600; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
+input[type=range] { width: 100%; accent-color: var(--s1); }
+.presets { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.chip { border: 1px solid var(--line); background: var(--panel-2); border-radius: 999px; padding: 3px 10px; font-size: 13px; cursor: pointer; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.chip:hover { border-color: var(--axis); color: var(--ink); }
+.btn-run { width: 100%; margin-top: 12px; padding: 11px 14px; border-radius: 8px; border: 0; background: var(--ink); color: var(--panel); font-weight: 700; font-size: 16px; cursor: pointer; letter-spacing: .01em; }
+.btn-run.stop { background: var(--bad); color: #fff; }
+.progress { margin-top: 10px; height: 6px; border-radius: 3px; background: var(--grid); overflow: hidden; }
+.progress > i { display: block; height: 100%; width: 0; background: var(--s1); transition: width .2s linear; }
+.prog-text { margin-top: 6px; font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; min-height: 1.4em; }
+
+.opt { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: start; padding-block: 7px; border-top: 1px solid var(--grid); cursor: pointer; }
+.opt:first-of-type { border-top: 0; }
+.opt input { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--s1); }
+.opt b { font-weight: 600; }
+.opt small { grid-column: 2; color: var(--muted); font-size: 12.5px; line-height: 1.35; }
+.opt.locked { cursor: default; }
+.field { display: grid; gap: 4px; padding-block: 7px; border-top: 1px solid var(--grid); }
+.field:first-of-type { border-top: 0; }
+.field label, .field .lbl { font-size: 13.5px; font-weight: 600; }
+.field select, .field input[type=number] { padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2); width: 100%; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pair span { font-size: 12px; color: var(--muted); display: block; margin-bottom: 2px; }
+.range-head { display: flex; justify-content: space-between; align-items: baseline; }
+.range-head output { font-variant-numeric: tabular-nums; font-weight: 700; }
+.hint { font-size: 12.5px; color: var(--muted); }
+.nums { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.nums button { border: 1px solid var(--line); background: var(--panel-2); color: var(--ink-2); border-radius: 6px; padding: 5px 0; font-weight: 700; font-variant-numeric: tabular-nums; cursor: pointer; }
+.nums button:hover { border-color: var(--axis); color: var(--ink); }
+.nums button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--panel); }
+.hint.warn { color: var(--bad); }
+
+/* results */
+.board { display: grid; gap: 16px; min-width: 0; }
+.status { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+.status h2 { font-size: 22px; font-weight: 600; }
+.rules-line { display: flex; gap: 6px; flex-wrap: wrap; }
+.rules-line span { font-size: 12.5px; padding: 2px 8px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--ink-2); }
+.kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 1100px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+.kpi .v { font-size: 26px; font-weight: 700; line-height: 1.1; margin-top: 4px; overflow-wrap: anywhere; }
+.kpi .v.small { font-size: 19px; }
+.kpi .d { font-size: 12.5px; color: var(--ink-2); margin-top: 2px; }
+
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 1100px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 16px 12px; min-width: 0; }
+.card.wide { grid-column: 1 / -1; }
+.card h3 { font-size: 18px; font-weight: 600; }
+.card .sub { margin: 2px 0 10px; color: var(--ink-2); font-size: 13.5px; max-width: 70ch; }
+.card .foot { margin-top: 6px; font-size: 12.5px; color: var(--muted); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-2); margin-bottom: 6px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.chart { width: 100%; min-height: 40px; }
+.chart svg { display: block; width: 100%; overflow: visible; }
+.chart text { font-family: var(--f-body); }
+.empty { color: var(--muted); font-size: 13.5px; padding: 18px 0; }
+
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 10px; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
+td.pos { color: var(--good); } td.neg { color: var(--bad); }
+tr.off td { color: var(--muted); }
+
+/* sample deal */
+.deal-head { display: flex; justify-content: space-between; align-items: start; gap: 12px; flex-wrap: wrap; }
+.btn-2 { border: 1px solid var(--line); background: var(--panel-2); border-radius: 8px; padding: 6px 12px; cursor: pointer; font-weight: 600; }
+.btn-2:hover { border-color: var(--axis); }
+.hands { display: grid; gap: 6px; margin-top: 10px; }
+.hand { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 10px; align-items: center; padding: 6px 8px; border-radius: 8px; }
+.hand.bidder { background: var(--hilite); }
+.hand .who { font-weight: 600; font-size: 14px; line-height: 1.2; }
+.hand .who small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+.tiles { display: flex; gap: 5px; flex-wrap: wrap; }
+.tiles svg { flex: none; }
+.bids { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.bid { font-size: 13px; padding: 3px 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel-2); }
+.bid b { font-weight: 700; }
+.verdict { margin-top: 12px; font-size: 15px; }
+.verdict .tag { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 8px; border-radius: 5px; margin-right: 6px; color: #fff; }
+.tag.made { background: var(--good); } .tag.set { background: var(--bad); }
+.tricks { margin-top: 10px; display: grid; gap: 4px; }
+.trick { display: grid; grid-template-columns: 54px minmax(0, 1fr) 70px; gap: 8px; align-items: center; font-size: 13px; color: var(--ink-2); }
+.trick .tiles { gap: 8px; }
+.trick .t { display: inline-flex; flex-direction: column; align-items: center; gap: 1px; font-size: 10.5px; color: var(--muted); }
+.trick .t.win svg { filter: drop-shadow(0 0 0 var(--s1)); }
+.trick .t.win span { color: var(--ink); font-weight: 700; }
+.trick .r { text-align: right; font-variant-numeric: tabular-nums; }
+
+details.about { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
+details.about summary { cursor: pointer; font-family: var(--f-display); font-weight: 600; font-size: 17px; }
+details.about p, details.about li { color: var(--ink-2); max-width: 75ch; }
+details.about ul { padding-left: 18px; }
+
+.tip { position: fixed; z-index: 50; pointer-events: none; background: var(--ink); color: var(--panel); font-size: 12.5px; line-height: 1.35; padding: 7px 9px; border-radius: 7px; max-width: 240px; opacity: 0; transition: opacity .08s; }
+.tip b { font-weight: 700; }
+@media (prefers-reduced-motion: reduce) { .progress > i, .tip { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="masthead">
+    <span class="tile-lg" id="logo" aria-hidden="true"></span>
+    <div>
+      <h1>Texas 42 Simulator</h1>
+      <p>Shake thousands of hands, let four simulation-driven bidders fight over each one, and see which contracts come up, who wins them, and how often they're made.</p>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="rail" aria-label="Simulation settings">
+      <section class="panel">
+        <div class="eyebrow">Simulate</div>
+        <div class="run-row" style="margin-top:6px">
+          <input type="number" id="n-count" min="100" max="100000" step="100" value="5000" aria-label="Number to simulate">
+          <div class="seg" role="group" aria-label="Count by">
+            <button type="button" id="u-hands" aria-pressed="true">Hands</button>
+            <button type="button" id="u-games" aria-pressed="false">Games</button>
+          </div>
+        </div>
+        <input type="range" id="n-slider" min="0" max="1000" value="500" aria-label="Number to simulate, log scale" style="margin-top:10px">
+        <div class="presets">
+          <button class="chip" data-n="100">100</button>
+          <button class="chip" data-n="1000">1,000</button>
+          <button class="chip" data-n="10000">10,000</button>
+          <button class="chip" data-n="100000">100,000</button>
+        </div>
+        <button class="btn-run" id="run">Run simulation</button>
+        <div class="progress" aria-hidden="true"><i id="prog"></i></div>
+        <div class="prog-text" id="prog-text" aria-live="polite"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Contracts allowed</h2>
+        <label class="opt locked"><input type="checkbox" checked disabled><b>Trump suits</b><small>Blanks through sixes. Point bids 30–41.</small></label>
+        <label class="opt"><input type="checkbox" id="c-dbl" checked><b>Doubles as trump</b><small>The seven doubles form the trump suit.</small></label>
+        <label class="opt"><input type="checkbox" id="c-fm" checked><b>Follow-me (no trump)</b><small>Highest of the suit led wins; doubles high.</small></label>
+        <label class="opt"><input type="checkbox" id="c-marks" checked><b>42 and mark bids</b><small>1 mark or more with trump: take every trick.</small></label>
+        <label class="opt"><input type="checkbox" id="c-nello" checked><b>Nello</b><small>Lose every trick. Partner sits out.</small></label>
+        <label class="opt"><input type="checkbox" id="c-spot" checked><b>Spot</b><small>Sevens with a number the bidder picks from your allowed set: closest domino wins; take every trick.</small></label>
+        <label class="opt"><input type="checkbox" id="c-splash" checked><b>Splash</b><small>Partner calls trump and leads; take every trick.</small></label>
+        <label class="opt"><input type="checkbox" id="c-plunge" checked><b>Plunge</b><small>Partner calls trump, bidder leads; take every trick.</small></label>
+      </section>
+
+      <section class="panel">
+        <h2>House rules</h2>
+        <div class="field">
+          <span class="lbl" id="spotnums-lbl">Spot numbers allowed</span>
+          <div class="nums" id="r-spotnums" role="group" aria-labelledby="spotnums-lbl"></div>
+          <div class="presets">
+            <button type="button" class="chip" data-spot="all">All</button>
+            <button type="button" class="chip" data-spot="7">7 only</button>
+            <button type="button" class="chip" data-spot="0,1,2">0–2</button>
+            <button type="button" class="chip" data-spot="6,7,8">6–8</button>
+            <button type="button" class="chip" data-spot="10,11,12">10–12</button>
+          </div>
+          <div class="hint" id="spot-hint"></div>
+        </div>
+        <div class="field">
+          <label for="r-spotpartner">Bidder's partner in Spot</label>
+          <select id="r-spotpartner"><option value="plays">Plays (Pagat rule)</option><option value="out">Sits out</option></select>
+        </div>
+        <div class="field">
+          <label for="r-nello">Nello doubles</label>
+          <select id="r-nello">
+            <option value="choice">Bidder picks the best option</option>
+            <option value="own">Doubles are their own suit</option>
+            <option value="high">Doubles high in their suit</option>
+            <option value="low">Doubles low in their suit</option>
+          </select>
+        </div>
+        <div class="field">
+          <span class="lbl">Splash</span>
+          <div class="pair">
+            <label><span>Doubles needed</span><select id="r-splash-d"><option>2</option><option selected>3</option><option>4</option></select></label>
+            <label><span>Minimum bid</span><select id="r-splash-m"><option value="2" selected>2 marks</option><option value="3">3 marks</option></select></label>
+          </div>
+        </div>
+        <div class="field">
+          <span class="lbl">Plunge</span>
+          <div class="pair">
+            <label><span>Doubles needed</span><select id="r-plunge-d"><option>3</option><option selected>4</option><option>5</option></select></label>
+            <label><span>Minimum bid</span><select id="r-plunge-m"><option value="3">3 marks</option><option value="4" selected>4 marks</option><option value="5">5 marks</option></select></label>
+          </div>
+        </div>
+        <div class="field">
+          <label for="r-allpass">When everyone passes</label>
+          <select id="r-allpass"><option value="throw">Reshake and redeal</option><option value="forced">Shaker must bid</option></select>
+        </div>
+        <div class="field">
+          <label for="r-target">Game is played to</label>
+          <select id="r-target"><option value="5">5 marks</option><option value="7" selected>7 marks</option><option value="10">10 marks</option><option value="11">11 marks</option></select>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Bidder model</h2>
+        <div class="field">
+          <div class="range-head"><label for="b-conf">Bid when at least this likely to make</label><output id="b-conf-o">60%</output></div>
+          <input type="range" id="b-conf" min="50" max="85" value="60">
+          <div class="hint">Lower is bolder. 50% is the break-even point for a 1-mark bid.</div>
+        </div>
+        <div class="field">
+          <div class="range-head"><label for="b-jump">Open at 2 marks when at least</label><output id="b-jump-o">85%</output></div>
+          <input type="range" id="b-jump" min="60" max="100" value="85">
+        </div>
+        <div class="field">
+          <label for="b-samples">Look-ahead deals per contract</label>
+          <select id="b-samples"><option value="12">12 · fast</option><option value="24" selected>24 · standard</option><option value="48">48 · precise (2× slower)</option></select>
+          <div class="hint">Each bidder deals the other 21 dominoes this many times and plays every contract out to measure its odds.</div>
+        </div>
+      </section>
+    </aside>
+
+    <main class="board" id="board">
+      <div class="status">
+        <h2 id="status-title">Shaking the first hands…</h2>
+        <div class="rules-line" id="rules-line"></div>
+      </div>
+      <div class="kpis" id="kpis"></div>
+
+      <div class="grid2">
+        <article class="card wide">
+          <h3>Who wins the auction</h3>
+          <p class="sub">Share of all played hands won by each contract, split into made and set.</p>
+          <div class="legend"><span><i style="background:var(--s1)"></i>Made</span><span><i style="background:var(--s2)"></i>Set</span></div>
+          <div class="chart" id="ch-contracts"></div>
+        </article>
+
+        <article class="card wide">
+          <h3>What each hand can support</h3>
+          <p class="sub" id="viab-sub">Share of dealt hands where the bidder model rates each contract at or above the bidding threshold, whether or not that player ends up declaring.</p>
+          <div class="chart" id="ch-viab"></div>
+          <p class="foot" id="viab-foot"></p>
+        </article>
+
+        <article class="card wide">
+          <h3>Winning bid</h3>
+          <p class="sub">How high the auction went. Point bids are worth 1 mark; 42 and above are bid in marks.</p>
+          <div class="legend"><span><i style="background:var(--s1)"></i>Made</span><span><i style="background:var(--s2)"></i>Set</span></div>
+          <div class="chart" id="ch-levels"></div>
+        </article>
+
+        <article class="card">
+          <h3>Trump called</h3>
+          <p class="sub">On point bids and 42 or mark bids.</p>
+          <div class="chart" id="ch-trump"></div>
+        </article>
+
+        <article class="card">
+          <h3>Bidder's seat</h3>
+          <p class="sub">Where the winning bidder sat relative to the shaker.</p>
+          <div class="chart" id="ch-seat"></div>
+        </article>
+
+        <article class="card">
+          <h3>Points the bidders took</h3>
+          <p class="sub">On point bids (30–41). The marker shows the average bid.</p>
+          <div class="chart" id="ch-points"></div>
+          <p class="foot" id="points-foot"></p>
+        </article>
+
+        <article class="card">
+          <h3>Doubles in hand</h3>
+          <p class="sub">Every dealt hand compared with the hands that won the bid.</p>
+          <div class="legend"><span><i style="background:var(--ref)"></i>All hands</span><span><i style="background:var(--s1)"></i>Winning bidders</span></div>
+          <div class="chart" id="ch-doubles"></div>
+          <p class="foot" id="doubles-foot"></p>
+        </article>
+
+        <article class="card" id="card-spot">
+          <h3>Spot numbers called</h3>
+          <p class="sub">Which of the allowed numbers the Spot bidder named.</p>
+          <div class="legend"><span><i style="background:var(--s1)"></i>Made</span><span><i style="background:var(--s2)"></i>Set</span></div>
+          <div class="chart" id="ch-spot"></div>
+        </article>
+
+        <article class="card" id="card-nello">
+          <h3>Nello</h3>
+          <p class="sub">How doubles were played, and the trick where a failed Nello got caught.</p>
+          <div class="chart" id="ch-nello"></div>
+          <div class="chart" id="ch-nello-fail" style="margin-top:8px"></div>
+        </article>
+
+        <article class="card">
+          <h3>Count captured by the bidders</h3>
+          <p class="sub">How often the bidding team took each counting domino (trump contracts).</p>
+          <div class="chart" id="ch-count"></div>
+        </article>
+
+        <article class="card">
+          <h3>Bid accuracy</h3>
+          <p class="sub">The bidder's estimated chance at bid time against how often those bids were actually made. Dots on the line mean honest odds.</p>
+          <div class="chart" id="ch-calib"></div>
+        </article>
+
+        <article class="card">
+          <h3>Auction traffic</h3>
+          <p class="sub">How many of the four players bid on a hand.</p>
+          <div class="chart" id="ch-traffic"></div>
+          <p class="foot" id="traffic-foot"></p>
+        </article>
+
+        <article class="card" id="card-games">
+          <h3>Game length</h3>
+          <p class="sub" id="games-sub">Hands needed to finish a game.</p>
+          <div class="chart" id="ch-games"></div>
+          <p class="foot" id="games-foot"></p>
+        </article>
+
+        <article class="card wide">
+          <h3>Contract summary</h3>
+          <p class="sub">Marks are counted from the bidding team's side: won when made, lost to the opponents when set.</p>
+          <div class="tbl-wrap"><table id="summary"></table></div>
+        </article>
+
+        <article class="card wide" id="deal-card">
+          <div class="deal-head">
+            <div>
+              <h3>A hand from the table</h3>
+              <p class="sub">One deal played with the current rules, so you can see how the bidders and players think.</p>
+            </div>
+            <button class="btn-2" id="deal-again">Shake another hand</button>
+          </div>
+          <div id="deal"></div>
+        </article>
+      </div>
+
+      <details class="about">
+        <summary>How the simulation works</summary>
+        <ul>
+          <li><b>Deal.</b> All 28 dominoes are shuffled and each player draws 7. The shaker rotates every hand.</li>
+          <li><b>Bidding.</b> One round, starting left of the shaker. Each player sees only their own hand. For every contract the rules allow, they deal the other 21 dominoes at random many times and play each layout out to measure their odds. They bid the highest level they make at least as often as the threshold, choose the contract with the best expected marks, and only overbid their partner with a clearly better contract.</li>
+          <li><b>Play.</b> Every player follows suit, tracks what has been played and who is out of a suit, pulls trump, cashes boss dominoes, smears count onto a partner's sure trick, and fights for every trick in contracts that need all seven. Nello players duck under the bidder. Nobody sees anyone else's hand.</li>
+          <li><b>Spot.</b> Every player must play the domino whose pips are closest to the spot number. The closest domino wins the trick and ties go to whoever played first. The bidder leads, and the bidding team must take every trick.</li>
+          <li><b>Scoring.</b> A made point bid scores 1 mark; a made mark bid scores its marks. A set gives those marks to the opponents.</li>
+          <li><b>Limits.</b> The play is strong rule-based play, not a perfect solver, and every odds estimate comes from a finite number of look-ahead deals. The Bid accuracy chart shows how well those estimates hold up.</li>
+        </ul>
+      </details>
+    </main>
+  </div>
+</div>
+<div class="tip" id="tip" role="tooltip"></div>
+
+<script id="engine-src">
+var Engine42 = (function () {
+'use strict';
+
+/* ---------- Domino tables ---------- */
+var HI = new Int8Array(28), LO = new Int8Array(28), SUM = new Int8Array(28), PTS = new Int8Array(28), ISD = new Uint8Array(28);
+var DID = []; // DID[a][b] -> index
+for (var a = 0; a < 7; a++) DID.push(new Int8Array(7));
+(function () {
+  var n = 0;
+  for (var hi = 0; hi <= 6; hi++) for (var lo = 0; lo <= hi; lo++) {
+    HI[n] = hi; LO[n] = lo; SUM[n] = hi + lo; ISD[n] = hi === lo ? 1 : 0;
+    PTS[n] = (hi + lo === 10) ? 10 : (hi + lo === 5 ? 5 : 0);
+    DID[hi][lo] = n; DID[lo][hi] = n; n++;
+  }
+})();
+var ALL = (1 << 28) - 1;
+var PIPM = new Int32Array(7), DBLM = 0;
+for (var i0 = 0; i0 < 28; i0++) { PIPM[HI[i0]] |= 1 << i0; PIPM[LO[i0]] |= 1 << i0; if (ISD[i0]) DBLM |= 1 << i0; }
+var COUNT_DOMS = [DID[6][4], DID[5][5], DID[5][0], DID[4][1], DID[3][2]];
+
+function pc(x) { x = x - ((x >>> 1) & 0x55555555); x = (x & 0x33333333) + ((x >>> 2) & 0x33333333); return (((x + (x >>> 4)) & 0x0F0F0F0F) * 0x01010101) >>> 24; }
+function lsb(x) { return 31 - Math.clz32(x & -x); }
+
+/* ---------- Trump option tables ----------
+   T 0-6 : that suit is trump
+   T 7   : doubles are trump
+   T 8   : follow-me / no trump, doubles high in their suit (also Nello "doubles high")
+   T 9   : no trump, doubles form their own suit (Nello standard)
+   T 10  : no trump, doubles low in their suit (Nello "doubles low")            */
+var NT = 11;
+var TRM = new Int32Array(NT), HAS = new Uint8Array(NT), LED = new Int8Array(NT * 28), FOL = new Int32Array(NT * 8), POW = new Int16Array(NT * 8 * 28);
+var ORD = new Array(NT * 8);
+(function () {
+  for (var T = 0; T < NT; T++) {
+    for (var i = 0; i < 28; i++) {
+      var tr = false;
+      if (T <= 6) tr = HI[i] === T || LO[i] === T; else if (T === 7) tr = ISD[i] === 1;
+      if (tr) TRM[T] |= 1 << i;
+    }
+    HAS[T] = T <= 7 ? 1 : 0;
+    for (i = 0; i < 28; i++) {
+      if ((TRM[T] >> i) & 1) LED[T * 28 + i] = 7;
+      else if (T === 9 && ISD[i]) LED[T * 28 + i] = 7;
+      else LED[T * 28 + i] = HI[i];
+    }
+    for (var s = 0; s < 7; s++) {
+      var m = PIPM[s] & ~TRM[T];
+      if (T === 9) m &= ~DBLM;
+      FOL[T * 8 + s] = m;
+    }
+    FOL[T * 8 + 7] = T <= 7 ? TRM[T] : (T === 9 ? DBLM : 0);
+    for (s = 0; s < 8; s++) {
+      var list = [];
+      for (i = 0; i < 28; i++) {
+        var p = 0;
+        if (HAS[T] && ((TRM[T] >> i) & 1)) {
+          if (T === 7) p = 100 + HI[i] + 1;
+          else p = 100 + (ISD[i] ? 8 : ((HI[i] === T ? LO[i] : HI[i]) + 1));
+        } else if ((FOL[T * 8 + s] >> i) & 1) {
+          if (T === 9 && s === 7) p = HI[i] + 1;
+          else if (ISD[i]) p = (T === 10) ? 1 : 8;
+          else { var other = HI[i] === s ? LO[i] : HI[i]; p = other + (T === 10 ? 2 : 1); }
+        }
+        POW[(T * 8 + s) * 28 + i] = p;
+        if ((FOL[T * 8 + s] >> i) & 1) list.push(i);
+      }
+      list.sort(function (x, y) { return POW[(T * 8 + s) * 28 + y] - POW[(T * 8 + s) * 28 + x]; });
+      ORD[T * 8 + s] = Int8Array.from(list);
+    }
+  }
+})();
+
+function maxPow(T, s, mask) {
+  var o = ORD[T * 8 + s];
+  for (var k = 0; k < o.length; k++) if ((mask >> o[k]) & 1) return POW[(T * 8 + s) * 28 + o[k]];
+  return 0;
+}
+function highestIn(mask, T, s) {
+  var o = ORD[T * 8 + s];
+  for (var k = 0; k < o.length; k++) if ((mask >> o[k]) & 1) return o[k];
+  return -1;
+}
+function lowestIn(mask, T, s) {
+  var o = ORD[T * 8 + s];
+  for (var k = o.length - 1; k >= 0; k--) if ((mask >> o[k]) & 1) return o[k];
+  return -1;
+}
+function ownRank(T, d) { var p = POW[(T * 8 + LED[T * 28 + d]) * 28 + d]; return p >= 100 ? p - 100 : p; }
+
+/* ---------- RNG (sfc32) ---------- */
+function makeRng(seed) {
+  var a = seed >>> 0, b = 0x9E3779B9, c = 0x243F6A88, d = 0xB7E15162;
+  function next() {
+    a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0;
+    var t = (a + b) | 0; a = b ^ (b >>> 9); b = (c + (c << 3)) | 0; c = (c << 21) | (c >>> 11); d = (d + 1) | 0; t = (t + d) | 0; c = (c + t) | 0;
+    return (t >>> 0) / 4294967296;
+  }
+  for (var k = 0; k < 15; k++) next();
+  return next;
+}
+
+/* ---------- Play state ---------- */
+var H = new Int32Array(4), VOID = new Int32Array(4);
+var TS = new Int8Array(4), TD = new Int8Array(4);
+var gNeedAll = false;
+var gT = 0, gTR = 0, gHAS = 0, PLAYED = 0, tN = 0, tLed = 0, tWinPos = 0, tWinPow = 0, gBidder = 0;
+var TEAMPTS = new Int32Array(2), TEAMTR = new Int32Array(2), CAP = new Int32Array(2);
+var TRACE = null;
+
+function laterOppVoid(seat, s) {
+  var after = 3 - tN;
+  if (after >= 1 && ((VOID[(seat + 1) & 3] >> s) & 1)) return true;
+  if (after >= 3 && ((VOID[(seat + 3) & 3] >> s) & 1)) return true;
+  return false;
+}
+function laterOppsAllVoid(seat, s) {
+  var after = 3 - tN;
+  if (after <= 0) return true;
+  if (!((VOID[(seat + 1) & 3] >> s) & 1)) return false;
+  if (after >= 3 && !((VOID[(seat + 3) & 3] >> s) & 1)) return false;
+  return true;
+}
+// Could a player still to act beat a winning power `pow` in led suit s?
+function beatable(pow, s, unseen, seat) {
+  var T = gT;
+  if (pow < 100) {
+    if (!laterOppsAllVoid(seat, s) && maxPow(T, s, unseen) > pow) return true;
+    if (gHAS && s !== 7 && (unseen & gTR) && laterOppVoid(seat, s)) return true;
+    return false;
+  }
+  if (maxPow(T, 7, unseen) > pow) { if (s === 7) return !laterOppsAllVoid(seat, 7); return laterOppVoid(seat, s); }
+  return false;
+}
+function smear(legal, base) {
+  var best = -1, bs = -1e9;
+  for (var m = legal; m; m &= m - 1) {
+    var d = lsb(m), p = POW[base + d], tr = (gTR >> d) & 1;
+    var sc = PTS[d] * 100 - (tr ? 50 : 0) - (p >= 100 ? p - 100 : p);
+    if (sc > bs) { bs = sc; best = d; }
+  }
+  return best;
+}
+function discard(legal) {
+  var best = -1, bc = 1e9, T = gT;
+  for (var m = legal; m; m &= m - 1) {
+    var d = lsb(m), tr = (gTR >> d) & 1;
+    var c = PTS[d] * 100 + (tr ? 60 : 0) + ownRank(T, d) * 3;
+    if (c < bc) { bc = c; best = d; }
+  }
+  return best;
+}
+function sureWinner(legal, base, s, unseen, seat) {
+  var best = -1, bs = -1e9;
+  for (var m = legal; m; m &= m - 1) {
+    var d = lsb(m), p = POW[base + d];
+    if (p > tWinPow && !beatable(p, s, unseen, seat)) {
+      var sc = PTS[d] * 100 - p;
+      if (sc > bs) { bs = sc; best = d; }
+    }
+  }
+  return best;
+}
+function leadTrump(seat, h, unseen) {
+  var T = gT;
+  var isBid = ((seat ^ gBidder) & 1) === 0;
+  var oA = (seat + 1) & 3, oB = (seat + 3) & 3;
+  var myTr = h & gTR;
+  var oppTr = gHAS && (unseen & gTR) && !(((VOID[oA] & VOID[oB]) >> 7) & 1);
+  if (isBid && myTr && oppTr) {
+    var top = highestIn(myTr, T, 7);
+    if (POW[(T * 8 + 7) * 28 + top] > maxPow(T, 7, unseen)) return top;
+    if (pc(myTr) >= 3) return lowestIn(myTr, T, 7);
+  }
+  var best = -1, bs = -1e9, m, d, s, p;
+  for (m = h & ~gTR; m; m &= m - 1) {
+    d = lsb(m); s = LED[T * 28 + d]; p = POW[(T * 8 + s) * 28 + d];
+    if (p > maxPow(T, s, unseen)) {
+      var risk = oppTr && (((VOID[oA] >> s) & 1) || ((VOID[oB] >> s) & 1));
+      var sc = risk ? -50 : (oppTr ? 20 - PTS[d] : 20 + PTS[d]);
+      if (sc > bs) { bs = sc; best = d; }
+    }
+  }
+  if (best >= 0 && bs > -50) return best;
+  if (isBid && myTr && oppTr) return lowestIn(myTr, T, 7);
+  var lo = -1, lc = 1e9;
+  for (m = h & ~gTR; m; m &= m - 1) {
+    d = lsb(m);
+    var c = PTS[d] * 100 + ownRank(T, d);
+    if (c < lc) { lc = c; lo = d; }
+  }
+  if (lo >= 0) return lo;
+  var t2 = highestIn(h, T, 7);
+  return POW[(T * 8 + 7) * 28 + t2] > maxPow(T, 7, unseen) ? t2 : lowestIn(h, T, 7);
+}
+function chooseTrump(seat) {
+  var h = H[seat];
+  if ((h & (h - 1)) === 0) return lsb(h);
+  var unseen = ALL & ~PLAYED & ~h;
+  if (tN === 0) return leadTrump(seat, h, unseen);
+  var s = tLed, T = gT, base = (T * 8 + s) * 28;
+  var legal = h & FOL[T * 8 + s];
+  if (legal === 0) legal = h;
+  if ((legal & (legal - 1)) === 0) return lsb(legal);
+  var after = 3 - tN;
+  var partnerWin = ((TS[tWinPos] ^ seat) & 1) === 0;
+  var trickPts = 0, k, m, d, p;
+  if (gNeedAll && !(partnerWin && (after === 0 || !beatable(tWinPow, s, unseen, seat)))) {
+    // every trick decides the contract: secure it with a sure winner, else play the strongest winner
+    var swA = sureWinner(legal, base, s, unseen, seat);
+    if (swA >= 0) return swA;
+    var hiW = -1, hp = tWinPow;
+    for (m = legal; m; m &= m - 1) { d = lsb(m); p = POW[base + d]; if (p > hp) { hp = p; hiW = d; } }
+    if (hiW >= 0) return hiW;
+    return discard(legal);
+  }
+  for (k = 0; k < tN; k++) trickPts += PTS[TD[k]];
+  if (partnerWin) {
+    if (after === 0 || !beatable(tWinPow, s, unseen, seat)) return smear(legal, base);
+    var sw = sureWinner(legal, base, s, unseen, seat);
+    if (sw >= 0) return sw;
+    return discard(legal);
+  }
+  if (after === 0) {
+    var best = -1, bs = -1e9;
+    for (m = legal; m; m &= m - 1) { d = lsb(m); p = POW[base + d]; if (p > tWinPow) { var sc = PTS[d] * 100 - p; if (sc > bs) { bs = sc; best = d; } } }
+    if (best >= 0) return best;
+    return discard(legal);
+  }
+  var sw2 = sureWinner(legal, base, s, unseen, seat);
+  if (sw2 >= 0) return sw2;
+  if (trickPts >= 5) {
+    var b2 = -1, bp = 1e9;
+    for (m = legal; m; m &= m - 1) { d = lsb(m); p = POW[base + d]; if (p > tWinPow && p < bp) { bp = p; b2 = d; } }
+    if (b2 >= 0) return b2;
+  }
+  return discard(legal);
+}
+
+// Play a trump / follow-me hand. H must be set. stopOnLoss: stop once the bidders lose a trick.
+function playTrump(T, bidder, leader, stopOnLoss, needAll) {
+  gNeedAll = !!needAll; gT = T; gTR = TRM[T]; gHAS = HAS[T]; PLAYED = 0; gBidder = bidder;
+  VOID[0] = VOID[1] = VOID[2] = VOID[3] = 0;
+  TEAMPTS[0] = TEAMPTS[1] = 0; TEAMTR[0] = TEAMTR[1] = 0; CAP[0] = CAP[1] = 0;
+  var lead = leader, bt = bidder & 1;
+  for (var trick = 0; trick < 7; trick++) {
+    tN = 0;
+    var seat = lead;
+    for (var k = 0; k < 4; k++) {
+      var d = chooseTrump(seat), bit = 1 << d;
+      H[seat] &= ~bit; PLAYED |= bit;
+      if (k === 0) { tLed = LED[T * 28 + d]; tWinPos = 0; tWinPow = POW[(T * 8 + tLed) * 28 + d]; }
+      else {
+        if (!((FOL[T * 8 + tLed] >> d) & 1)) VOID[seat] |= 1 << tLed;
+        var p = POW[(T * 8 + tLed) * 28 + d];
+        if (p > tWinPow) { tWinPow = p; tWinPos = k; }
+      }
+      TS[k] = seat; TD[k] = d; tN = k + 1;
+      seat = (seat + 1) & 3;
+    }
+    var w = TS[tWinPos], team = w & 1, pts = 1, cm = 0;
+    for (k = 0; k < 4; k++) { pts += PTS[TD[k]]; cm |= 1 << TD[k]; }
+    TEAMPTS[team] += pts; TEAMTR[team]++; CAP[team] |= cm;
+    if (TRACE) TRACE.tricks.push({ seats: Array.from(TS), doms: Array.from(TD), winner: w, pts: pts });
+    lead = w;
+    if (stopOnLoss && team !== bt) break;
+  }
+  return TEAMPTS[bt];
+}
+
+/* ---------- Nello ---------- */
+function chooseNello(seat) {
+  var h = H[seat];
+  if ((h & (h - 1)) === 0) return lsb(h);
+  var T = gT, unseen = ALL & ~PLAYED & ~h, isB = seat === gBidder;
+  var m, d, s, p, best = -1, bs;
+  if (tN === 0) {
+    if (isB) {
+      bs = -1e9;
+      var oA = (seat + 1) & 3, oB = (seat + 3) & 3;
+      for (m = h; m; m &= m - 1) {
+        d = lsb(m); s = LED[T * 28 + d]; p = POW[(T * 8 + s) * 28 + d];
+        var hiC = 0, loC = 0;
+        for (var mm = unseen & FOL[T * 8 + s]; mm; mm &= mm - 1) { if (POW[(T * 8 + s) * 28 + lsb(mm)] > p) hiC++; else loC++; }
+        var sc;
+        if (hiC === 0) sc = -100 - p; else if (loC === 0) sc = 100 + hiC; else sc = hiC * 2 - loC * 3 - p * 0.5;
+        if (((VOID[oA] >> s) & 1) && ((VOID[oB] >> s) & 1)) sc -= 300;
+        if (sc > bs) { bs = sc; best = d; }
+      }
+      return best;
+    }
+    bs = 1e9;
+    for (m = h; m; m &= m - 1) {
+      d = lsb(m); s = LED[T * 28 + d]; p = POW[(T * 8 + s) * 28 + d];
+      var c = p + (((VOID[gBidder] >> s) & 1) ? 50 : 0);
+      if (c < bs) { bs = c; best = d; }
+    }
+    return best;
+  }
+  s = tLed; var base = (T * 8 + s) * 28;
+  var legal = h & FOL[T * 8 + s], follow = legal !== 0;
+  if (!follow) legal = h;
+  if ((legal & (legal - 1)) === 0) return lsb(legal);
+  if (isB) {
+    bs = -1e9;
+    for (m = legal; m; m &= m - 1) {
+      d = lsb(m); p = POW[base + d];
+      if (p < tWinPow) { var sc2 = follow ? p : 50 + ownRank(T, d); if (sc2 > bs) { bs = sc2; best = d; } }
+    }
+    if (best >= 0) return best;
+    bs = -1;
+    for (m = legal; m; m &= m - 1) { d = lsb(m); p = POW[base + d]; if (p > bs) { bs = p; best = d; } }
+    return best;
+  }
+  var bPlayed = false;
+  for (var k = 0; k < tN; k++) if (TS[k] === gBidder) bPlayed = true;
+  var bWin = TS[tWinPos] === gBidder;
+  if (bPlayed && bWin) {
+    bs = -1e9;
+    for (m = legal; m; m &= m - 1) {
+      d = lsb(m); p = POW[base + d];
+      if (p < tWinPow) { var sc3 = follow ? p : ownRank(T, d); if (sc3 > bs) { bs = sc3; best = d; } }
+    }
+    if (best >= 0) return best;
+  }
+  if (bPlayed || !follow) {
+    bs = -1e9;
+    for (m = legal; m; m &= m - 1) { d = lsb(m); var r = ownRank(T, d); if (r > bs) { bs = r; best = d; } }
+    return best;
+  }
+  bs = 1e9;
+  for (m = legal; m; m &= m - 1) { d = lsb(m); p = POW[base + d]; if (p < bs) { bs = p; best = d; } }
+  return best;
+}
+// returns number of tricks played before the bidder caught one (7 = success)
+function playNello(T, bidder) {
+  gT = T; gTR = 0; gHAS = 0; PLAYED = 0; gBidder = bidder;
+  VOID[0] = VOID[1] = VOID[2] = VOID[3] = 0;
+  var out = (bidder + 2) & 3, lead = bidder;
+  for (var trick = 0; trick < 7; trick++) {
+    tN = 0;
+    var seat = lead;
+    for (var k = 0; k < 3; k++) {
+      var d = chooseNello(seat), bit = 1 << d;
+      H[seat] &= ~bit; PLAYED |= bit;
+      if (k === 0) { tLed = LED[T * 28 + d]; tWinPos = 0; tWinPow = POW[(T * 8 + tLed) * 28 + d]; }
+      else {
+        if (!((FOL[T * 8 + tLed] >> d) & 1)) VOID[seat] |= 1 << tLed;
+        var p = POW[(T * 8 + tLed) * 28 + d];
+        if (p > tWinPow) { tWinPow = p; tWinPos = k; }
+      }
+      TS[k] = seat; TD[k] = d; tN = k + 1;
+      seat = (seat + 1) & 3; if (seat === out) seat = (seat + 1) & 3;
+    }
+    var w = TS[tWinPos];
+    if (TRACE) TRACE.tricks.push({ seats: Array.from(TS.subarray(0, 3)), doms: Array.from(TD.subarray(0, 3)), winner: w, pts: 0 });
+    if (w === bidder) return trick;
+    lead = w;
+  }
+  return 7;
+}
+
+/* ---------- Spot (Sevens with any number) ---------- */
+var DIST = new Int8Array(13 * 28);
+for (var nn = 0; nn < 13; nn++) for (var dd = 0; dd < 28; dd++) DIST[nn * 28 + dd] = Math.abs(SUM[dd] - nn);
+// returns tricks won in a row by bidding team (7 = success)
+function playSpot(N, bidder, partnerOut) {
+  var lead = bidder, base = N * 28, bt = bidder & 1, out = partnerOut ? (bidder + 2) & 3 : -1, np = partnerOut ? 3 : 4;
+  for (var trick = 0; trick < 7; trick++) {
+    var seat = lead, bd = 99, win = -1;
+    var rs = TRACE ? [] : null, rd = TRACE ? [] : null;
+    for (var k = 0; k < np; k++) {
+      var h = H[seat], best = -1, bdist = 99;
+      for (var m = h; m; m &= m - 1) { var d = lsb(m), x = DIST[base + d]; if (x < bdist || (x === bdist && SUM[d] > SUM[best])) { bdist = x; best = d; } }
+      H[seat] &= ~(1 << best);
+      if (bdist < bd) { bd = bdist; win = seat; }
+      if (TRACE) { rs.push(seat); rd.push(best); }
+      seat = (seat + 1) & 3; if (seat === out) seat = (seat + 1) & 3;
+    }
+    if (TRACE) TRACE.tricks.push({ seats: rs, doms: rd, winner: win, pts: 0 });
+    if ((win & 1) !== bt) return trick;
+    lead = win;
+  }
+  return 7;
+}
+
+/* ---------- Splash / Plunge partner trump choice ---------- */
+function partnerTrump(P, cfg, minD) {
+  var best = 0, bs = -1;
+  for (var t = 0; t < 7; t++) {
+    var m = P & PIPM[t], sc = pc(m) * 10 + (((P >> DID[t][t]) & 1) ? 6 : 0);
+    for (var mm = m; mm; mm &= mm - 1) { var d = lsb(mm); sc += (HI[d] === t ? LO[d] : HI[d]) * 0.3; }
+    if (sc > bs) { bs = sc; best = t; }
+  }
+  return best;
+}
+
+/* ---------- Hand evaluation (Monte Carlo, bidder sees only own hand) ---------- */
+var SAMP = new Int32Array(3 * 256);
+var OTH = new Int8Array(21);
+var HIST = new Int32Array(NT * 43);
+function setSample(seat, my, k) {
+  H[seat] = my; H[(seat + 1) & 3] = SAMP[k * 3]; H[(seat + 2) & 3] = SAMP[k * 3 + 1]; H[(seat + 3) & 3] = SAMP[k * 3 + 2];
+}
+function evalHand(seat, my, cfg, rng) {
+  var K = cfg.samples, KA = Math.max(4, Math.round(K / 4)), k, j, t;
+  var n = 0;
+  for (var m = ALL & ~my; m; m &= m - 1) OTH[n++] = lsb(m);
+  for (k = 0; k < K; k++) {
+    for (j = 20; j > 0; j--) { var r = (rng() * (j + 1)) | 0; var tmp = OTH[j]; OTH[j] = OTH[r]; OTH[r] = tmp; }
+    var a = 0, b = 0, c = 0;
+    for (j = 0; j < 7; j++) a |= 1 << OTH[j];
+    for (j = 7; j < 14; j++) b |= 1 << OTH[j];
+    for (j = 14; j < 21; j++) c |= 1 << OTH[j];
+    SAMP[k * 3] = a; SAMP[k * 3 + 1] = b; SAMP[k * 3 + 2] = c;
+  }
+  var ev = { pA: 0, tA: 0, pP: new Float64Array(43), tP: new Int8Array(43).fill(-1), pN: 0, nT: 9, pS: 0, sN: 7, pSp: -1, pPl: -1, dbl: pc(my & DBLM) };
+  // trump contracts
+  var opts = cfg.trumpOpts, nOpt = opts.length;
+  HIST.fill(0);
+  var sum = new Float64Array(NT), cnt = new Int32Array(NT);
+  for (j = 0; j < nOpt; j++) {
+    t = opts[j];
+    for (k = 0; k < KA; k++) { setSample(seat, my, k); var pts = playTrump(t, seat, seat, false); HIST[t * 43 + pts]++; sum[t] += pts; cnt[t]++; }
+  }
+  var bestMean = 0;
+  for (j = 0; j < nOpt; j++) { t = opts[j]; if (sum[t] / cnt[t] > bestMean) bestMean = sum[t] / cnt[t]; }
+  if (bestMean >= 20 && K > KA) {
+    var keep = [];
+    for (j = 0; j < nOpt; j++) { t = opts[j]; if (sum[t] / cnt[t] >= bestMean - 6) keep.push(t); }
+    keep.sort(function (x, y) { return sum[y] / cnt[y] - sum[x] / cnt[x]; });
+    if (keep.length > 3) keep.length = 3;
+    for (j = 0; j < keep.length; j++) {
+      t = keep[j];
+      for (k = KA; k < K; k++) { setSample(seat, my, k); var pts2 = playTrump(t, seat, seat, false); HIST[t * 43 + pts2]++; cnt[t]++; }
+    }
+  }
+  for (j = 0; j < nOpt; j++) {
+    t = opts[j];
+    var acc = 0;
+    for (var L = 42; L >= 30; L--) {
+      acc += HIST[t * 43 + L];
+      var p = acc / cnt[t];
+      if (p > ev.pP[L] || ev.tP[L] < 0) { ev.pP[L] = p; ev.tP[L] = t; }
+    }
+  }
+  // take-all-tricks: re-estimate the best trump with defenders who only need one trick
+  if (cfg.marks && ev.pP[42] >= 0.15) {
+    var T42 = ev.tP[42], w42 = 0;
+    for (k = 0; k < K; k++) { setSample(seat, my, k); if (playTrump(T42, seat, seat, true, true) === 42) w42++; }
+    ev.pA = w42 / K; ev.tA = T42;
+  }
+  // nello
+  if (cfg.nello) {
+    var vars = cfg.nelloVars;
+    ev.pN = -1;
+    for (j = 0; j < vars.length; j++) {
+      t = vars[j];
+      var succ = 0, tot = 0;
+      for (k = 0; k < KA; k++) { setSample(seat, my, k); if (playNello(t, seat) === 7) succ++; tot++; }
+      if (succ > 0) for (k = KA; k < K; k++) { setSample(seat, my, k); if (playNello(t, seat) === 7) succ++; tot++; }
+      var pn = succ / tot;
+      if (pn > ev.pN) { ev.pN = pn; ev.nT = t; }
+    }
+  }
+  // spot
+  if (cfg.spot) {
+    var nums = cfg.spotNums;
+    ev.pS = -1;
+    for (j = 0; j < nums.length; j++) {
+      var N = nums[j], s2 = 0, t2 = 0;
+      for (k = 0; k < KA; k++) { setSample(seat, my, k); if (playSpot(N, seat, cfg.spotPartnerOut) === 7) s2++; t2++; }
+      if (s2 > 0) for (k = KA; k < K; k++) { setSample(seat, my, k); if (playSpot(N, seat, cfg.spotPartnerOut) === 7) s2++; t2++; }
+      var ps = s2 / t2;
+      if (ps > ev.pS) { ev.pS = ps; ev.sN = N; }
+    }
+  }
+  // splash / plunge (partner names trump from their own hand)
+  if (cfg.splash && ev.dbl >= cfg.splashDoubles) ev.pSp = specialP(seat, my, cfg, rng, K, KA, true);
+  if (cfg.plunge && ev.dbl >= cfg.plungeDoubles) ev.pPl = specialP(seat, my, cfg, rng, K, KA, false);
+  return ev;
+}
+function specialP(seat, my, cfg, rng, K, KA, splash) {
+  var partner = (seat + 2) & 3, succ = 0, tot = 0, minD = splash ? cfg.splashDoubles : cfg.plungeDoubles;
+  for (var k = 0; k < K; k++) {
+    if (k === KA && succ === 0) break;
+    setSample(seat, my, k);
+    var T = partnerTrump(H[partner], cfg, minD);
+    if (playTrump(T, seat, splash ? partner : seat, true, true) === 42) succ++;
+    tot++;
+  }
+  return succ / tot;
+}
+
+/* ---------- Bidding ---------- */
+var KIND = { pts: 0, all: 1, nello: 2, spot: 3, splash: 4, plunge: 5 };
+function decide(seat, ev, V, holder, cfg, forced) {
+  var th = cfg.conf, kmin = V < 42 ? 1 : Math.floor(V / 42) + 1;
+  var cands = [], c, L;
+  if (V < 41 && cfg.pointsBids) {
+    var Lmin = Math.max(30, V + 1), Lstar = -1;
+    for (L = 41; L >= Lmin; L--) if (ev.pP[L] >= th) { Lstar = L; break; }
+    if (Lstar >= 0 || forced) {
+      var LL = Lstar >= 0 ? Lstar : Lmin;
+      cands.push({ kind: 'pts', value: LL, T: ev.tP[LL], p: ev.pP[LL], ev: 2 * ev.pP[Lmin] - 1, marks: 1 });
+    }
+  }
+  var mk = [];
+  if (cfg.marks) mk.push({ kind: 'all', p: ev.pA, T: ev.tA });
+  if (cfg.nello) mk.push({ kind: 'nello', p: ev.pN, T: ev.nT });
+  if (cfg.spot) mk.push({ kind: 'spot', p: ev.pS, N: ev.sN });
+  for (var j = 0; j < mk.length; j++) {
+    c = mk[j];
+    if (c.p >= th || forced) {
+      var k = kmin; if (kmin === 1 && c.p >= cfg.jump) k = 2;
+      c.value = 42 * k; c.marks = k; c.ev = (2 * c.p - 1) * k; cands.push(c);
+    }
+  }
+  if (ev.pSp >= 0 && (ev.pSp >= th || forced)) { var ks = Math.max(cfg.splashMarks, kmin); cands.push({ kind: 'splash', p: ev.pSp, value: 42 * ks, marks: ks, ev: (2 * ev.pSp - 1) * ks }); }
+  if (ev.pPl >= 0 && (ev.pPl >= th || forced)) { var kp = Math.max(cfg.plungeMarks, kmin); cands.push({ kind: 'plunge', p: ev.pPl, value: 42 * kp, marks: kp, ev: (2 * ev.pPl - 1) * kp }); }
+  if (!cands.length) return null;
+  var best = cands[0];
+  for (j = 1; j < cands.length; j++) { c = cands[j]; if (c.ev > best.ev + 1e-9 || (Math.abs(c.ev - best.ev) < 1e-9 && c.value > best.value)) best = c; }
+  if (best.kind === 'pts' && best.value >= 40 && V < 42) {
+    for (j = 0; j < cands.length; j++) if (cands[j].kind === 'all' && cands[j].marks === 1 && cands[j].p >= th) { best = cands[j]; break; }
+  }
+  if (holder >= 0 && ((holder ^ seat) & 1) === 0) {
+    var partnerEV = (2 * th - 1) * (V >= 42 ? V / 42 : 1);
+    var myEV = best.kind === 'pts' ? 2 * best.p - 1 : best.ev;
+    if (myEV < partnerEV + 0.35) return null;
+  }
+  return best;
+}
+
+/* ---------- Stats ---------- */
+var NCAT = 8; // 0 pts-suit, 1 pts-doubles, 2 pts-follow-me, 3 all-tricks mark bid, 4 nello, 5 spot, 6 splash, 7 plunge
+function newStats() {
+  function z(n) { var a = new Array(n); for (var i = 0; i < n; i++) a[i] = 0; return a; }
+  return {
+    hands: 0, deals: 0, throwIns: 0, forced: 0, forcedMade: 0,
+    catCount: z(NCAT), catMade: z(NCAT), catMarksWon: z(NCAT), catMarksLost: z(NCAT),
+    levelCount: z(18), levelMade: z(18),
+    trumpCount: z(9), trumpMade: z(9), partnerTrump: z(9),
+    spotCount: z(13), spotMade: z(13),
+    nelloCount: z(3), nelloMade: z(3), nelloFailTrick: z(8),
+    seatCount: z(4), seatMade: z(4),
+    bidderDbl: z(8), handDbl: z(8), dblCat: z(8 * NCAT),
+    ptsHist: z(43), ptsMadeHist: z(43), tricksHist: z(8),
+    countCap: z(5), countHands: 0,
+    marksBid: 0, marksDef: 0,
+    bidsPerHand: z(5), overPartner: 0, overOpp: 0,
+    calibCount: z(10), calibMade: z(10), calibP: z(10),
+    marginSum: 0, marginN: 0, ptsBidSum: 0,
+    dealerTeamMarks: 0, otherTeamMarks: 0,
+    eligSplash: 0, eligPlunge: 0,
+    evalCount: 0, vElig: z(6), vSum: z(6), vOk: z(6), vHist: z(60),
+    games: 0, gameLen: z(41), firstDealerWins: 0, shutouts: 0, gameMargin: z(15)
+  };
+}
+function mergeStats(dst, src) {
+  for (var key in src) {
+    var v = src[key];
+    if (typeof v === 'number') dst[key] = (dst[key] || 0) + v;
+    else if (Array.isArray(v)) { var d = dst[key]; for (var i = 0; i < v.length; i++) d[i] += v[i]; }
+  }
+  return dst;
+}
+
+/* ---------- One hand ---------- */
+var DECK = new Int8Array(28);
+function deal(rng, out) {
+  for (var i = 0; i < 28; i++) DECK[i] = i;
+  for (i = 27; i > 0; i--) { var r = (rng() * (i + 1)) | 0; var t = DECK[i]; DECK[i] = DECK[r]; DECK[r] = t; }
+  for (var p = 0; p < 4; p++) { var m = 0; for (var j = 0; j < 7; j++) m |= 1 << DECK[p * 7 + j]; out[p] = m; }
+}
+var HANDS = new Int32Array(4);
+function recV(st, c, p, th) {
+  if (p < 0) p = 0;
+  st.vElig[c]++; st.vSum[c] += p; if (p >= th) st.vOk[c]++;
+  st.vHist[c * 10 + Math.min(9, Math.floor(p * 10))]++;
+}
+function catOf(c) {
+  if (c.kind === 'pts') return c.T <= 6 ? 0 : (c.T === 7 ? 1 : 2);
+  return { all: 3, nello: 4, spot: 5, splash: 6, plunge: 7 }[c.kind];
+}
+function trumpIdx(T) { return T <= 7 ? T : 8; }
+
+// Plays one deal. Returns null on a throw-in, else {team, marks} for the team that scores.
+function playHand(cfg, dealer, st, rng, trace) {
+  deal(rng, HANDS);
+  st.deals++;
+  var maxD = 0;
+  for (var p = 0; p < 4; p++) { var dc = pc(HANDS[p] & DBLM); st.handDbl[dc]++; if (dc > maxD) maxD = dc; }
+  if (maxD >= cfg.splashDoubles) st.eligSplash++;
+  if (maxD >= cfg.plungeDoubles) st.eligPlunge++;
+  var V = 0, holder = -1, cur = null, nb = 0, bidLog = trace ? [] : null;
+  for (var i = 0; i < 4; i++) {
+    var seat = (dealer + 1 + i) & 3;
+    var forced = i === 3 && holder < 0 && cfg.allPass === 'forced';
+    var ev = evalHand(seat, HANDS[seat], cfg, rng);
+    var act = decide(seat, ev, V, holder, cfg, forced);
+    st.evalCount++;
+    recV(st, 0, ev.pP[30], cfg.conf);
+    if (cfg.marks) recV(st, 1, ev.pA, cfg.conf);
+    if (cfg.nello) recV(st, 2, ev.pN, cfg.conf);
+    if (cfg.spot) recV(st, 3, ev.pS, cfg.conf);
+    if (ev.pSp >= 0) recV(st, 4, ev.pSp, cfg.conf);
+    if (ev.pPl >= 0) recV(st, 5, ev.pPl, cfg.conf);
+    if (trace) bidLog.push({ seat: seat, act: act, ev: { best30: ev.pP[30], all: ev.pA, nello: ev.pN, spot: ev.pS, spotN: ev.sN, splash: ev.pSp, plunge: ev.pPl } });
+    if (act) {
+      if (holder >= 0) { if (((holder ^ seat) & 1) === 0) st.overPartner++; else st.overOpp++; }
+      V = act.value; holder = seat; cur = act; cur.pos = i; cur.forced = forced; nb++;
+    }
+  }
+  st.bidsPerHand[nb]++;
+  if (holder < 0) { st.throwIns++; if (trace) { trace.bids = bidLog; trace.hands = Array.from(HANDS); trace.dealer = dealer; trace.result = null; } return null; }
+  st.hands++;
+  var bidder = holder, bt = bidder & 1, made = false, pts = -1, cat = catOf(cur);
+  if (trace) { TRACE = trace; trace.tricks = []; trace.hands = Array.from(HANDS); trace.dealer = dealer; trace.bids = bidLog; trace.contract = cur; trace.bidder = bidder; }
+  for (p = 0; p < 4; p++) H[p] = HANDS[p];
+  if (cur.kind === 'pts' || cur.kind === 'all') {
+    pts = playTrump(cur.T, bidder, bidder, false, cur.kind === 'all');
+    made = cur.kind === 'pts' ? pts >= cur.value : pts === 42;
+    if (cur.kind === 'all' || cur.kind === 'pts') {
+      st.trumpCount[trumpIdx(cur.T)]++; if (made) st.trumpMade[trumpIdx(cur.T)]++;
+    }
+  } else if (cur.kind === 'nello') {
+    var ft = playNello(cur.T, bidder); made = ft === 7; st.nelloFailTrick[ft]++;
+    var vi = cur.T === 9 ? 0 : (cur.T === 8 ? 1 : 2);
+    st.nelloCount[vi]++; if (made) st.nelloMade[vi]++;
+  } else if (cur.kind === 'spot') {
+    made = playSpot(cur.N, bidder, cfg.spotPartnerOut) === 7;
+    st.spotCount[cur.N]++; if (made) st.spotMade[cur.N]++;
+  } else {
+    var partner = (bidder + 2) & 3;
+    var T = partnerTrump(HANDS[partner], cfg, cur.kind === 'splash' ? cfg.splashDoubles : cfg.plungeDoubles);
+    cur.T = T;
+    pts = playTrump(T, bidder, cur.kind === 'splash' ? partner : bidder, false, true);
+    made = pts === 42;
+    st.partnerTrump[trumpIdx(T)]++;
+  }
+  TRACE = null;
+  if (pts >= 0) {
+    st.tricksHist[TEAMTR[bt]]++;
+    st.countHands++;
+    for (var q = 0; q < 5; q++) if ((CAP[bt] >> COUNT_DOMS[q]) & 1) st.countCap[q]++;
+  }
+  if (cur.kind === 'pts') {
+    st.ptsHist[pts]++; if (made) st.ptsMadeHist[pts]++;
+    st.marginSum += pts - cur.value; st.marginN++; st.ptsBidSum += cur.value;
+  }
+  var marks = cur.marks;
+  st.catCount[cat]++; if (made) { st.catMade[cat]++; st.catMarksWon[cat] += marks; st.marksBid += marks; } else { st.catMarksLost[cat] += marks; st.marksDef += marks; }
+  var li = cur.kind === 'pts' ? cur.value - 30 : Math.min(17, 11 + marks);
+  st.levelCount[li]++; if (made) st.levelMade[li]++;
+  st.seatCount[cur.pos]++; if (made) st.seatMade[cur.pos]++;
+  var bd = pc(HANDS[bidder] & DBLM);
+  st.bidderDbl[bd]++; st.dblCat[bd * NCAT + cat]++;
+  var cb = Math.min(9, Math.floor(cur.p * 10));
+  st.calibCount[cb]++; st.calibP[cb] += cur.p; if (made) st.calibMade[cb]++;
+  if (cur.forced) { st.forced++; if (made) st.forcedMade++; }
+  var team = made ? bt : 1 - bt;
+  if ((team & 1) === (dealer & 1)) st.dealerTeamMarks += marks; else st.otherTeamMarks += marks;
+  if (trace) { trace.made = made; trace.pts = pts; trace.result = { team: team, marks: marks }; }
+  return { team: team, marks: marks };
+}
+
+/* ---------- Config normalisation ---------- */
+function prepare(cfg) {
+  var c = {};
+  for (var k in cfg) c[k] = cfg[k];
+  c.trumpOpts = [0, 1, 2, 3, 4, 5, 6];
+  if (c.doublesTrump) c.trumpOpts.push(7);
+  if (c.followMe) c.trumpOpts.push(8);
+  c.nelloVars = c.nelloMode === 'own' ? [9] : c.nelloMode === 'high' ? [8] : c.nelloMode === 'low' ? [10] : [9, 8, 10];
+  if (Array.isArray(c.spotSet)) c.spotNums = c.spotSet.filter(function (n) { return n >= 0 && n <= 12; }).sort(function (a, b) { return a - b; });
+  else c.spotNums = (c.spotNum === undefined || c.spotNum < 0) ? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : [c.spotNum];
+  if (!c.spotNums.length) c.spot = false;
+  if (c.pointsBids === undefined) c.pointsBids = true;
+  return c;
+}
+
+/* ---------- Runner: units are hands or games ---------- */
+function Runner(cfgIn, seed) {
+  this.cfg = prepare(cfgIn);
+  this.rng = makeRng(seed);
+  this.dealer = (this.rng() * 4) | 0;
+  this.st = newStats();
+  this.done = 0;
+  this.marks = [0, 0];
+  this.gameHands = 0;
+  this.firstDealer = this.dealer;
+}
+// run until `n` more units complete or `budgetMs` passes; returns units completed this call
+Runner.prototype.step = function (n, budgetMs) {
+  var cfg = this.cfg, st = this.st, t0 = Date.now(), did = 0;
+  while (did < n) {
+    var r = playHand(cfg, this.dealer, st, this.rng, null);
+    this.dealer = (this.dealer + 1) & 3;
+    if (cfg.unit === 'games') {
+      if (r) { this.marks[r.team] += r.marks; this.gameHands++; }
+      if (this.marks[0] >= cfg.target || this.marks[1] >= cfg.target) {
+        var w = this.marks[0] >= cfg.target ? 0 : 1;
+        st.games++;
+        st.gameLen[Math.min(40, this.gameHands)]++;
+        if (w === (this.firstDealer & 1)) st.firstDealerWins++;
+        var loser = this.marks[1 - w];
+        if (loser === 0) st.shutouts++;
+        st.gameMargin[Math.min(14, this.marks[w] - loser)]++;
+        this.marks = [0, 0]; this.gameHands = 0; this.firstDealer = this.dealer;
+        did++; this.done++;
+      }
+    } else if (r) { did++; this.done++; }
+    if ((did & 3) === 0 && Date.now() - t0 > budgetMs) break;
+  }
+  return did;
+};
+
+function sampleHand(cfgIn, seed) {
+  var cfg = prepare(cfgIn), rng = makeRng(seed), st = newStats();
+  for (var tries = 0; tries < 20; tries++) {
+    var tr = {};
+    var dealer = (rng() * 4) | 0;
+    var r = playHand(cfg, dealer, st, rng, tr);
+    if (r) return tr;
+  }
+  return tr;
+}
+
+return {
+  HI: HI, LO: LO, PTS: PTS, SUM: SUM, DID: DID, NCAT: NCAT, COUNT_DOMS: COUNT_DOMS,
+  newStats: newStats, mergeStats: mergeStats, Runner: Runner, sampleHand: sampleHand, prepare: prepare,
+  _test: { H: H, playTrump: playTrump, playNello: playNello, playSpot: playSpot, TEAMPTS: TEAMPTS, TEAMTR: TEAMTR, POW: POW, LED: LED, FOL: FOL, evalHand: evalHand, makeRng: makeRng, deal: deal }
+};
+})();
+if (typeof module !== 'undefined') module.exports = Engine42;
+
+</script>
+<script>
+(function () {
+'use strict';
+var E = Engine42;
+var $ = function (s) { return document.querySelector(s); };
+var TRUMP = ['Blanks', 'Aces', 'Deuces', 'Treys', 'Fours', 'Fives', 'Sixes', 'Doubles', 'Follow-me'];
+var TRUMP_LC = ['blanks', 'aces', 'deuces', 'treys', 'fours', 'fives', 'sixes', 'doubles', 'follow-me'];
+var CAT = ['Points · trump suit', 'Points · doubles trump', 'Points · follow-me', '42 or mark bid', 'Nello', 'Spot', 'Splash', 'Plunge'];
+var LEVEL = ['30', '31', '32', '33', '34', '35', '36', '37', '38', '39', '40', '41', '1M', '2M', '3M', '4M', '5M', '6M+'];
+var LEVEL_LONG = ['30', '31', '32', '33', '34', '35', '36', '37', '38', '39', '40', '41', '1 mark (42)', '2 marks', '3 marks', '4 marks', '5 marks', '6 marks or more'];
+var SEAT = ['North', 'East', 'South', 'West'];
+var POS = ['1st, left of shaker', '2nd', '3rd', 'Shaker (last)'];
+var NELLO_V = ['Own suit', 'High', 'Low'];
+var VIAB = ['Point bid (30)', '42 / take all', 'Nello', 'Spot', 'Splash', 'Plunge'];
+
+/* ---------- settings ---------- */
+var unit = 'hands';
+var ALL_SPOT = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+var spotSet = ALL_SPOT.slice();
+function spanList(a) {
+  a = a.slice().sort(function (x, y) { return x - y; });
+  var out = [], i = 0;
+  while (i < a.length) {
+    var j = i; while (j + 1 < a.length && a[j + 1] === a[j] + 1) j++;
+    out.push(j - i >= 2 ? a[i] + '–' + a[j] : (j > i ? a[i] + ', ' + a[j] : String(a[i])));
+    i = j + 1;
+  }
+  return out.join(', ');
+}
+function drawSpotNums() {
+  var el = document.getElementById('r-spotnums');
+  el.innerHTML = ALL_SPOT.map(function (n) { return '<button type="button" id="spot-n' + n + '" data-n="' + n + '" aria-pressed="' + (spotSet.indexOf(n) >= 0) + '">' + n + '</button>'; }).join('');
+  var h = document.getElementById('spot-hint');
+  h.classList.toggle('warn', spotSet.length === 0);
+  h.textContent = spotSet.length === 0 ? 'No numbers picked, so Spot is off.' : spotSet.length === 13 ? 'Bidder picks any number 0–12.' : spotSet.length === 1 ? 'Bidder must call ' + spotSet[0] + '.' : 'Bidder picks the best of ' + spanList(spotSet) + '.';
+}
+function enabledCats(c) { return [true, c.doublesTrump, c.followMe, c.marks, c.nello, c.spot, c.splash, c.plunge]; }
+function readCfg() {
+  return {
+    doublesTrump: $('#c-dbl').checked, followMe: $('#c-fm').checked, marks: $('#c-marks').checked,
+    nello: $('#c-nello').checked, nelloMode: $('#r-nello').value,
+    spot: $('#c-spot').checked && spotSet.length > 0, spotSet: spotSet.slice(), spotPartnerOut: $('#r-spotpartner').value === 'out',
+    splash: $('#c-splash').checked, splashDoubles: +$('#r-splash-d').value, splashMarks: +$('#r-splash-m').value,
+    plunge: $('#c-plunge').checked, plungeDoubles: +$('#r-plunge-d').value, plungeMarks: +$('#r-plunge-m').value,
+    allPass: $('#r-allpass').value, target: +$('#r-target').value,
+    conf: +$('#b-conf').value / 100, jump: +$('#b-jump').value / 100, samples: +$('#b-samples').value,
+    unit: unit
+  };
+}
+var IDS = ['c-dbl', 'c-fm', 'c-marks', 'c-nello', 'c-spot', 'c-splash', 'c-plunge', 'r-spotpartner', 'r-nello', 'r-splash-d', 'r-splash-m', 'r-plunge-d', 'r-plunge-m', 'r-allpass', 'r-target', 'b-conf', 'b-jump', 'b-samples', 'n-count'];
+function saveSettings() {
+  var o = { unit: unit, spotSet: spotSet };
+  IDS.forEach(function (id) { var el = document.getElementById(id); o[id] = el.type === 'checkbox' ? el.checked : el.value; });
+  try { localStorage.setItem('t42-settings', JSON.stringify(o)); } catch (e) {}
+}
+function loadSettings() {
+  var o = null;
+  try { o = JSON.parse(localStorage.getItem('t42-settings') || 'null'); } catch (e) {}
+  if (!o) return;
+  IDS.forEach(function (id) { if (!(id in o)) return; var el = document.getElementById(id); if (el.type === 'checkbox') el.checked = !!o[id]; else el.value = o[id]; });
+  if (o.unit) setUnit(o.unit, true);
+  if (Array.isArray(o.spotSet)) spotSet = o.spotSet.filter(function (n) { return n >= 0 && n <= 12; });
+  else if ('r-spotnum' in o) spotSet = +o['r-spotnum'] < 0 ? ALL_SPOT.slice() : [+o['r-spotnum']];
+}
+function setUnit(u, silent) {
+  unit = u;
+  $('#u-hands').setAttribute('aria-pressed', u === 'hands');
+  $('#u-games').setAttribute('aria-pressed', u === 'games');
+  if (!silent) saveSettings();
+}
+function clampN() { var v = Math.round(+$('#n-count').value || 0); v = Math.max(100, Math.min(100000, v)); $('#n-count').value = v; return v; }
+function sliderToN(x) { var n = Math.pow(10, 2 + 3 * x / 1000); var mag = Math.pow(10, Math.floor(Math.log10(n)) - 1); return Math.max(100, Math.min(100000, Math.round(n / mag) * mag)); }
+function nToSlider(n) { return Math.round((Math.log10(n) - 2) / 3 * 1000); }
+
+/* ---------- formatting ---------- */
+function fi(n) { return Math.round(n).toLocaleString('en-US'); }
+function pct(a, b, d) { if (!b) return '—'; return (100 * a / b).toFixed(d === undefined ? 1 : d) + '%'; }
+function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+/* ---------- domino tiles ---------- */
+var PIPS = {
+  0: [], 1: [[.5, .5]], 2: [[.27, .27], [.73, .73]], 3: [[.27, .27], [.5, .5], [.73, .73]],
+  4: [[.27, .27], [.73, .27], [.27, .73], [.73, .73]], 5: [[.27, .27], [.73, .27], [.5, .5], [.27, .73], [.73, .73]],
+  6: [[.28, .24], [.28, .5], [.28, .76], [.72, .24], [.72, .5], [.72, .76]]
+};
+function tile(a, b, u, extra) {
+  var w = 2 * u, h = u, r = u * 0.09, s = '';
+  s += '<svg width="' + (w + 2) + '" height="' + (h + 2) + '" viewBox="-1 -1 ' + (w + 2) + ' ' + (h + 2) + '" role="img" aria-label="' + a + '-' + b + '"' + (extra || '') + '>';
+  s += '<rect x="0" y="0" width="' + w + '" height="' + h + '" rx="' + (u * 0.18) + '" fill="var(--tile)" stroke="var(--tile-edge)" stroke-width="1"/>';
+  s += '<line x1="' + u + '" y1="' + (h * 0.14) + '" x2="' + u + '" y2="' + (h * 0.86) + '" stroke="var(--tile-line)" stroke-width="1"/>';
+  [a, b].forEach(function (v, half) { PIPS[v].forEach(function (p) { s += '<circle cx="' + (half * u + p[0] * u) + '" cy="' + (p[1] * u) + '" r="' + r + '" fill="var(--pip)"/>'; }); });
+  return s + '</svg>';
+}
+function dtile(d, u, extra) { return tile(E.HI[d], E.LO[d], u, extra); }
+$('#logo').innerHTML = tile(4, 2, 34);
+
+/* ---------- tooltip ---------- */
+var tipEl = $('#tip');
+document.addEventListener('pointermove', function (e) {
+  var t = e.target.closest && e.target.closest('[data-tip]');
+  if (!t) { tipEl.style.opacity = 0; return; }
+  tipEl.innerHTML = t.getAttribute('data-tip');
+  var x = e.clientX + 14, y = e.clientY + 14, w = tipEl.offsetWidth, h = tipEl.offsetHeight;
+  if (x + w > window.innerWidth - 8) x = e.clientX - w - 14;
+  if (y + h > window.innerHeight - 8) y = e.clientY - h - 14;
+  tipEl.style.left = Math.max(8, x) + 'px'; tipEl.style.top = Math.max(8, y) + 'px'; tipEl.style.opacity = 1;
+});
+document.addEventListener('pointerleave', function () { tipEl.style.opacity = 0; });
+
+/* ---------- charts ---------- */
+function barPath(x, y, w, h, r, dir) {
+  // rounded data-end: dir 'r' (horizontal) or 't' (vertical)
+  if (w <= 0 || h <= 0) return '';
+  if (dir === 'r') {
+    r = Math.min(r, w, h / 2);
+    return 'M' + x + ',' + y + 'h' + (w - r) + 'a' + r + ',' + r + ' 0 0 1 ' + r + ',' + r + 'v' + (h - 2 * r) + 'a' + r + ',' + r + ' 0 0 1 ' + (-r) + ',' + r + 'h' + (-(w - r)) + 'z';
+  }
+  r = Math.min(r, h, w / 2);
+  return 'M' + x + ',' + (y + h) + 'v' + (-(h - r)) + 'a' + r + ',' + r + ' 0 0 1 ' + r + ',' + (-r) + 'h' + (w - 2 * r) + 'a' + r + ',' + r + ' 0 0 1 ' + r + ',' + r + 'v' + (h - r) + 'z';
+}
+function niceMax(v) {
+  if (v <= 0) return 1;
+  var p = Math.pow(10, Math.floor(Math.log10(v))), m = v / p;
+  var n = m <= 1 ? 1 : m <= 2 ? 2 : m <= 4 ? 4 : m <= 6 ? 6 : m <= 8 ? 8 : 10;
+  return n * p;
+}
+function widthOf(el) { return Math.max(260, el.clientWidth || 600); }
+
+// rows: [{label, a, b, tip, right}] ; a = made value, b = set value (b optional); max = scale max
+function hbars(el, rows, opt) {
+  opt = opt || {};
+  if (!rows.length) { el.innerHTML = '<div class="empty">' + (opt.empty || 'No data yet.') + '</div>'; return; }
+  var W = widthOf(el), rowH = opt.rowH || 30, thick = Math.min(16, rowH - 12);
+  var labelW = Math.min(opt.labelW || 170, Math.round(W * 0.36)), rightW = opt.rightW || 118;
+  var plotW = Math.max(60, W - labelW - rightW - 8), H = rows.length * rowH;
+  var max = opt.max || Math.max.apply(null, rows.map(function (r) { return r.a + (r.b || 0); })) || 1;
+  var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" height="' + H + '">';
+  s += '<line x1="' + labelW + '" y1="0" x2="' + labelW + '" y2="' + H + '" stroke="var(--axis)" stroke-width="1"/>';
+  rows.forEach(function (r, i) {
+    var y = i * rowH, by = y + (rowH - thick) / 2;
+    var wa = plotW * r.a / max, wb = plotW * (r.b || 0) / max;
+    s += '<g data-tip="' + esc(r.tip || '') + '"><rect x="0" y="' + y + '" width="' + W + '" height="' + rowH + '" fill="transparent"/>';
+    s += '<text x="' + (labelW - 8) + '" y="' + (y + rowH / 2 + 4.5) + '" text-anchor="end" font-size="13" fill="' + (r.dim ? 'var(--muted)' : 'var(--ink)') + '">' + esc(r.label) + '</text>';
+    var col = r.color || 'var(--s1)';
+    if (wb > 0 && wa > 0) {
+      var ga = Math.max(0, wa - 1);
+      s += '<rect x="' + labelW + '" y="' + by + '" width="' + ga + '" height="' + thick + '" fill="' + col + '"/>';
+      s += '<path d="' + barPath(labelW + wa + 1, by, Math.max(1, wb - 1), thick, 4, 'r') + '" fill="var(--s2)"/>';
+    } else if (wa > 0) {
+      s += '<path d="' + barPath(labelW, by, Math.max(1, wa), thick, 4, 'r') + '" fill="' + col + '"/>';
+    } else if (wb > 0) {
+      s += '<path d="' + barPath(labelW, by, Math.max(1, wb), thick, 4, 'r') + '" fill="var(--s2)"/>';
+    }
+    s += '<text x="' + (labelW + wa + wb + 8) + '" y="' + (y + rowH / 2 + 4.5) + '" font-size="12.5" fill="var(--ink-2)" style="font-variant-numeric:tabular-nums">' + esc(r.right || '') + '</text>';
+    s += '</g>';
+  });
+  el.innerHTML = s + '</svg>';
+}
+
+// labels: x labels; series: [{name, values, color}]; mode: 'stack' | 'group'
+function columns(el, labels, series, opt) {
+  opt = opt || {};
+  var W = widthOf(el), H = opt.height || 210, ml = 44, mr = 10, mt = 14, mb = 26;
+  var pw = W - ml - mr, ph = H - mt - mb, n = labels.length, band = pw / n;
+  var totals = labels.map(function (_, i) { return opt.mode === 'group' ? Math.max.apply(null, series.map(function (s) { return s.values[i]; })) : series.reduce(function (a, s) { return a + s.values[i]; }, 0); });
+  var max = niceMax(Math.max.apply(null, totals) || 1);
+  var fmt = opt.yFmt || function (v) { return v >= 1000 ? (v / 1000).toFixed(v % 1000 ? 1 : 0) + 'K' : fi(v); };
+  var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" height="' + H + '">';
+  for (var g = 0; g <= 4; g++) {
+    var gv = max * g / 4, gy = mt + ph - ph * g / 4;
+    s += '<line x1="' + ml + '" x2="' + (W - mr) + '" y1="' + gy + '" y2="' + gy + '" stroke="' + (g ? 'var(--grid)' : 'var(--axis)') + '" stroke-width="1"/>';
+    s += '<text x="' + (ml - 6) + '" y="' + (gy + 4) + '" text-anchor="end" font-size="11.5" fill="var(--muted)" style="font-variant-numeric:tabular-nums">' + fmt(gv) + '</text>';
+  }
+  var every = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(pw / (opt.minLabel || 26)))));
+  labels.forEach(function (lab, i) {
+    var cx = ml + band * i + band / 2;
+    s += '<g data-tip="' + esc(opt.tip ? opt.tip(i) : lab) + '"><rect x="' + (ml + band * i) + '" y="' + mt + '" width="' + band + '" height="' + (ph + mb) + '" fill="transparent"/>';
+    if (opt.mode === 'group') {
+      var k = series.length, bw = Math.min(14, (band * 0.8 - 2 * (k - 1)) / k), tw = k * bw + 2 * (k - 1), x0 = cx - tw / 2;
+      series.forEach(function (se, j) {
+        var h = ph * se.values[i] / max;
+        if (h > 0) s += '<path d="' + barPath(x0 + j * (bw + 2), mt + ph - h, bw, Math.max(1, h), 3, 't') + '" fill="' + se.color + '"/>';
+      });
+    } else {
+      var bw2 = Math.min(24, band * 0.72), y = mt + ph, last = -1;
+      series.forEach(function (se, j) { if (se.values[i] > 0) last = j; });
+      series.forEach(function (se, j) {
+        var h = ph * se.values[i] / max;
+        if (h <= 0) return;
+        var gap = (j > 0 && y < mt + ph) ? 2 : 0;
+        var hh = Math.max(1, h - gap);
+        if (j === last) s += '<path d="' + barPath(cx - bw2 / 2, y - gap - hh, bw2, hh, 4, 't') + '" fill="' + se.color + '"/>';
+        else s += '<rect x="' + (cx - bw2 / 2) + '" y="' + (y - gap - hh) + '" width="' + bw2 + '" height="' + hh + '" fill="' + se.color + '"/>';
+        y -= h;
+      });
+    }
+    if (i % every === 0) s += '<text x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle" font-size="11.5" fill="var(--muted)">' + esc(lab) + '</text>';
+    s += '</g>';
+  });
+  if (opt.marker) {
+    var mx = ml + band * opt.marker.at + band / 2;
+    s += '<line x1="' + mx + '" x2="' + mx + '" y1="' + (mt - 4) + '" y2="' + (mt + ph) + '" stroke="var(--ink)" stroke-width="1.5"/>';
+    var anchor = mx > W - 90 ? 'end' : 'start';
+    s += '<text x="' + (mx + (anchor === 'start' ? 5 : -5)) + '" y="' + (mt + 6) + '" text-anchor="' + anchor + '" font-size="12" font-weight="600" fill="var(--ink)">' + esc(opt.marker.label) + '</text>';
+  }
+  el.innerHTML = s + '</svg>';
+}
+
+function calibChart(el, st) {
+  var W = widthOf(el), H = 230, ml = 44, mr = 12, mt = 12, mb = 34;
+  var pw = W - ml - mr, ph = H - mt - mb;
+  var maxC = Math.max.apply(null, st.calibCount) || 1;
+  var x = function (v) { return ml + pw * v; }, y = function (v) { return mt + ph - ph * v; };
+  var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" height="' + H + '">';
+  for (var g = 0; g <= 4; g++) {
+    var v = g / 4;
+    s += '<line x1="' + ml + '" x2="' + (W - mr) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="' + (g ? 'var(--grid)' : 'var(--axis)') + '"/>';
+    s += '<text x="' + (ml - 6) + '" y="' + (y(v) + 4) + '" text-anchor="end" font-size="11.5" fill="var(--muted)">' + (v * 100) + '%</text>';
+    s += '<text x="' + x(v) + '" y="' + (H - 16) + '" text-anchor="middle" font-size="11.5" fill="var(--muted)">' + (v * 100) + '%</text>';
+  }
+  s += '<text x="' + (ml + pw / 2) + '" y="' + (H - 1) + '" text-anchor="middle" font-size="11.5" fill="var(--ink-2)">Estimated chance when bid</text>';
+  s += '<line x1="' + x(0) + '" y1="' + y(0) + '" x2="' + x(1) + '" y2="' + y(1) + '" stroke="var(--ref)" stroke-width="1.5"/>';
+  for (var i = 0; i < 10; i++) {
+    var c = st.calibCount[i]; if (!c) continue;
+    var px = st.calibP[i] / c, py = st.calibMade[i] / c, r = 4 + 7 * Math.sqrt(c / maxC);
+    var tip = '<b>Estimated ' + (px * 100).toFixed(0) + '%</b><br>Made ' + (py * 100).toFixed(1) + '% of ' + fi(c) + ' bids';
+    s += '<circle data-tip="' + esc(tip) + '" cx="' + x(px) + '" cy="' + y(py) + '" r="' + r + '" fill="var(--s1)" stroke="var(--panel)" stroke-width="2"/>';
+  }
+  el.innerHTML = s + '</svg>';
+}
+
+/* ---------- render ---------- */
+var lastStats = null, lastCfg = null, lastMeta = null;
+function render(st, cfg, meta) {
+  lastStats = st; lastCfg = cfg; lastMeta = meta;
+  var en = enabledCats(cfg), H = st.hands;
+  // status + rules
+  var unitWord = cfg.unit === 'games' ? 'games' : 'hands';
+  var count = cfg.unit === 'games' ? st.games : st.hands;
+  $('#status-title').textContent = H ? (meta.running ? 'Running · ' : (meta.sample ? 'Sample run · ' : 'Results · ')) + fi(count) + ' ' + unitWord + (cfg.unit === 'games' ? ' (' + fi(H) + ' hands)' : '') : 'Shaking the first hands…';
+  var rl = [];
+  rl.push('Spot: ' + (cfg.spot ? (cfg.spotSet.length === 13 ? 'any number' : (cfg.spotSet.length === 1 ? 'number ' : 'numbers ') + spanList(cfg.spotSet)) + (cfg.spotPartnerOut ? ', partner out' : '') : 'off'));
+  rl.push('Nello: ' + (cfg.nello ? { choice: "bidder's choice", own: 'doubles own suit', high: 'doubles high', low: 'doubles low' }[cfg.nelloMode] : 'off'));
+  rl.push('Bid at ' + Math.round(cfg.conf * 100) + '%');
+  rl.push(cfg.allPass === 'forced' ? 'Shaker must bid' : 'All-pass reshakes');
+  $('#rules-line').innerHTML = rl.map(function (t) { return '<span>' + esc(t) + '</span>'; }).join('');
+
+  // KPIs
+  var made = st.catMade.reduce(function (a, b) { return a + b; }, 0);
+  var topI = 0; for (var i = 1; i < 8; i++) if (st.catCount[i] > st.catCount[topI]) topI = i;
+  var marks = st.marksBid + st.marksDef;
+  var k = [];
+  k.push(['Hands played', fi(H), fi(st.deals) + ' deals shaken']);
+  k.push(['Bids made', pct(made, H), fi(H - made) + ' sets']);
+  if (cfg.allPass === 'forced') k.push(['Shaker forced', pct(st.forced, st.deals), pct(st.forcedMade, st.forced, 0) + ' of those made']);
+  else k.push(['All-pass reshakes', pct(st.throwIns, st.deals), fi(st.throwIns) + ' redeals']);
+  k.push(['Marks per hand', H ? (marks / H).toFixed(2) : '—', pct(st.marksBid, marks, 0) + ' to bidders']);
+  if (cfg.unit === 'games' && st.games) k.push(['Hands per game', (H / st.games).toFixed(1), pct(st.firstDealerWins, st.games, 1) + ' won by first shaker’s team']);
+  else k.push(['Top contract', H ? CAT[topI] : '—', H ? pct(st.catCount[topI], H) + ' of hands' : '', true]);
+  $('#kpis').innerHTML = k.map(function (x) { return '<div class="kpi"><div class="eyebrow">' + x[0] + '</div><div class="v' + (x[3] ? ' small' : '') + '">' + esc(x[1]) + '</div><div class="d">' + esc(x[2]) + '</div></div>'; }).join('');
+
+  // contracts
+  var rows = [];
+  for (i = 0; i < 8; i++) {
+    if (!en[i] && !st.catCount[i]) continue;
+    var c = st.catCount[i], m = st.catMade[i];
+    rows.push({ label: CAT[i], a: H ? 100 * m / H : 0, b: H ? 100 * (c - m) / H : 0, dim: !c,
+      right: pct(c, H) + (c ? ' · made ' + pct(m, c, 0) : ''),
+      tip: '<b>' + CAT[i] + '</b><br>' + fi(c) + ' hands (' + pct(c, H) + ')<br>Made ' + fi(m) + ' · set ' + fi(c - m) + (c ? '<br>Make rate ' + pct(m, c) : '') });
+  }
+  hbars($('#ch-contracts'), rows, { labelW: 180, rightW: 130 });
+
+  // viability
+  var vr = [], vEn = [true, cfg.marks, cfg.nello, cfg.spot, cfg.splash, cfg.plunge];
+  for (i = 0; i < 6; i++) {
+    if (!vEn[i]) continue;
+    var basis = (i >= 4) ? st.evalCount : st.vElig[i];
+    var ok = st.vOk[i], avg = st.vElig[i] ? st.vSum[i] / st.vElig[i] : 0;
+    var extra = i >= 4 ? ' · ' + pct(st.vElig[i], st.evalCount) + ' of hands eligible' : '';
+    vr.push({ label: VIAB[i], a: basis ? 100 * ok / basis : 0, right: pct(ok, basis) + extra,
+      tip: '<b>' + VIAB[i] + '</b><br>Biddable in ' + pct(ok, basis) + ' of ' + fi(basis) + ' hands' + (i >= 4 ? '<br>Eligible (enough doubles): ' + pct(st.vElig[i], st.evalCount) + '<br>Average odds when eligible: ' + (avg * 100).toFixed(1) + '%' : '<br>Average odds across all hands: ' + (avg * 100).toFixed(1) + '%') });
+  }
+  hbars($('#ch-viab'), vr, { labelW: 150, rightW: 210 });
+  $('#viab-sub').textContent = 'Share of dealt hands where the bidder model rates each contract at ' + Math.round(cfg.conf * 100) + '% or better to make, whether or not that player ends up declaring.';
+  var vf = [];
+  if (cfg.splash && st.vElig[4]) vf.push('Splash hands average ' + (100 * st.vSum[4] / st.vElig[4]).toFixed(0) + '% to make');
+  if (cfg.plunge && st.vElig[5]) vf.push('Plunge hands ' + (100 * st.vSum[5] / st.vElig[5]).toFixed(0) + '%');
+  $('#viab-foot').textContent = vf.length ? vf.join('; ') + ', because the team must take all seven tricks with trump called blind by the partner.' : '';
+
+  // levels
+  var lc = st.levelCount, lm = st.levelMade, hi = 17;
+  while (hi > 12 && !lc[hi]) hi--;
+  var labs = LEVEL.slice(0, hi + 1);
+  columns($('#ch-levels'), labs, [
+    { name: 'Made', values: lm.slice(0, hi + 1), color: 'var(--s1)' },
+    { name: 'Set', values: lc.slice(0, hi + 1).map(function (v, j) { return v - lm[j]; }), color: 'var(--s2)' }
+  ], { height: 220, tip: function (j) { return '<b>Bid ' + LEVEL_LONG[j] + '</b><br>' + fi(lc[j]) + ' hands (' + pct(lc[j], H) + ')<br>Made ' + pct(lm[j], lc[j]); } });
+
+  // trump
+  var tr = [];
+  for (i = 0; i < 9; i++) {
+    if ((i === 7 && !cfg.doublesTrump) || (i === 8 && !cfg.followMe)) continue;
+    var tc = st.trumpCount[i], tm = st.trumpMade[i], tt = st.trumpCount.reduce(function (a, b) { return a + b; }, 0);
+    tr.push({ label: TRUMP[i], a: tm, b: tc - tm, right: pct(tc, tt) + (tc ? ' · ' + pct(tm, tc, 0) : ''), tip: '<b>' + TRUMP[i] + '</b><br>' + fi(tc) + ' contracts (' + pct(tc, tt) + ')<br>Made ' + pct(tm, tc) + (st.partnerTrump[i] ? '<br>Called by partner on Splash/Plunge: ' + fi(st.partnerTrump[i]) : '') });
+  }
+  hbars($('#ch-trump'), tr, { labelW: 92, rightW: 104, rowH: 27 });
+
+  // seat
+  hbars($('#ch-seat'), [0, 1, 2, 3].map(function (p) {
+    var c = st.seatCount[p], m = st.seatMade[p];
+    return { label: POS[p], a: m, b: c - m, right: pct(c, H) + (c ? ' · ' + pct(m, c, 0) : ''), tip: '<b>' + POS[p] + '</b><br>Won the bid ' + pct(c, H) + ' of hands<br>Made ' + pct(m, c) };
+  }), { labelW: 140, rightW: 104 });
+
+  // points histogram
+  var ph = st.ptsHist, pm = st.ptsMadeHist, np = st.marginN;
+  var avgBid = np ? st.ptsBidSum / np : 0;
+  columns($('#ch-points'), ph.map(function (_, j) { return String(j); }), [
+    { name: 'Made', values: pm, color: 'var(--s1)' },
+    { name: 'Set', values: ph.map(function (v, j) { return v - pm[j]; }), color: 'var(--s2)' }
+  ], { height: 200, minLabel: 30, tip: function (j) { return '<b>' + j + ' points</b><br>' + fi(ph[j]) + ' point bids (' + pct(ph[j], np) + ')'; }, marker: np ? { at: avgBid, label: 'avg bid ' + avgBid.toFixed(1) } : null });
+  $('#points-foot').textContent = np ? 'Bidders finished ' + (st.marginSum / np >= 0 ? '+' : '') + (st.marginSum / np).toFixed(1) + ' points against their bid on average.' : '';
+
+  // doubles
+  var hd = st.handDbl, bd = st.bidderDbl, thd = hd.reduce(function (a, b) { return a + b; }, 0), tbd = bd.reduce(function (a, b) { return a + b; }, 0);
+  var dl = ['0', '1', '2', '3', '4', '5', '6', '7'];
+  columns($('#ch-doubles'), dl, [
+    { name: 'All hands', values: hd.map(function (v) { return thd ? 100 * v / thd : 0; }), color: 'var(--ref)' },
+    { name: 'Winning bidders', values: bd.map(function (v) { return tbd ? 100 * v / tbd : 0; }), color: 'var(--s1)' }
+  ], { mode: 'group', height: 190, yFmt: function (v) { return v.toFixed(0) + '%'; }, tip: function (j) { return '<b>' + j + ' double' + (j === 1 ? '' : 's') + '</b><br>All hands: ' + pct(hd[j], thd) + '<br>Winning bidders: ' + pct(bd[j], tbd); } });
+  $('#doubles-foot').textContent = st.deals ? 'Some player held ' + cfg.splashDoubles + '+ doubles in ' + pct(st.eligSplash, st.deals, 0) + ' of deals and ' + cfg.plungeDoubles + '+ in ' + pct(st.eligPlunge, st.deals, 0) + '.' : '';
+
+  // spot
+  var spotOn = cfg.spot;
+  $('#card-spot').hidden = !spotOn;
+  if (spotOn) {
+    var ns = cfg.spotSet.slice().sort(function (a, b) { return a - b; });
+    var sc = ns.map(function (n) { return st.spotCount[n]; }), sm = ns.map(function (n) { return st.spotMade[n]; });
+    var spTot = sc.reduce(function (a, b) { return a + b; }, 0);
+    columns($('#ch-spot'), ns.map(String), [
+      { name: 'Made', values: sm, color: 'var(--s1)' }, { name: 'Set', values: sc.map(function (v, j) { return v - sm[j]; }), color: 'var(--s2)' }
+    ], { height: 190, tip: function (j) { return '<b>Spot ' + ns[j] + '</b><br>' + fi(sc[j]) + ' bids (' + pct(sc[j], spTot) + ' of Spot bids)<br>Made ' + pct(sm[j], sc[j]); } });
+  }
+  // nello
+  $('#card-nello').hidden = !cfg.nello;
+  if (cfg.nello) {
+    var nt = st.nelloCount.reduce(function (a, b) { return a + b; }, 0);
+    hbars($('#ch-nello'), [0, 1, 2].filter(function (v) { return cfg.nelloMode === 'choice' || ['own', 'high', 'low'][v] === cfg.nelloMode; }).map(function (v) {
+      var c = st.nelloCount[v], m = st.nelloMade[v];
+      return { label: 'Doubles ' + NELLO_V[v].toLowerCase(), a: m, b: c - m, right: pct(c, nt) + (c ? ' · ' + pct(m, c, 0) : ''), tip: '<b>Doubles ' + NELLO_V[v].toLowerCase() + '</b><br>' + fi(c) + ' Nello bids<br>Made ' + pct(m, c) };
+    }), { labelW: 140, rightW: 104, rowH: 27, empty: 'No Nello bids yet.' });
+    var nf = st.nelloFailTrick.slice(0, 7), nft = nf.reduce(function (a, b) { return a + b; }, 0);
+    if (nft) columns($('#ch-nello-fail'), ['Trick 1', '2', '3', '4', '5', '6', '7'], [{ name: 'Caught', values: nf, color: 'var(--s2)' }], { height: 150, tip: function (j) { return '<b>Caught on trick ' + (j + 1) + '</b><br>' + fi(nf[j]) + ' failed Nellos (' + pct(nf[j], nft) + ')'; } });
+    else $('#ch-nello-fail').innerHTML = '';
+  }
+  // count
+  var cn = ['6-4 (10)', '5-5 (10)', '5-0 (5)', '4-1 (5)', '3-2 (5)'];
+  hbars($('#ch-count'), cn.map(function (l, j) {
+    return { label: l, a: st.countHands ? 100 * st.countCap[j] / st.countHands : 0, right: pct(st.countCap[j], st.countHands), tip: '<b>' + l + '</b><br>Bidders took it in ' + pct(st.countCap[j], st.countHands) + ' of ' + fi(st.countHands) + ' trump contracts' };
+  }), { labelW: 92, rightW: 60, max: 100, rowH: 28 });
+  // calibration
+  calibChart($('#ch-calib'), st);
+  // traffic
+  var bp = st.bidsPerHand, tb = bp.reduce(function (a, b) { return a + b; }, 0);
+  columns($('#ch-traffic'), ['No bids', '1 bidder', '2', '3', 'All 4'], [{ name: 'Deals', values: bp, color: 'var(--s1)' }], { height: 180, minLabel: 50, tip: function (j) { return '<b>' + j + ' bidder' + (j === 1 ? '' : 's') + '</b><br>' + pct(bp[j], tb) + ' of deals'; } });
+  $('#traffic-foot').textContent = (st.overOpp + st.overPartner) ? 'Overcalls: ' + fi(st.overOpp) + ' over an opponent, ' + fi(st.overPartner) + ' over a partner.' : '';
+  // games
+  var gOn = cfg.unit === 'games' && st.games > 0;
+  $('#card-games').hidden = !gOn;
+  if (gOn) {
+    var gl = st.gameLen, ghi = 40; while (ghi > 5 && !gl[ghi]) ghi--;
+    var gls = gl.slice(1, ghi + 1);
+    columns($('#ch-games'), gls.map(function (_, j) { return String(j + 1); }), [{ name: 'Games', values: gls, color: 'var(--s1)' }], { height: 190, tip: function (j) { return '<b>' + (j + 1) + ' hands</b><br>' + fi(gls[j]) + ' games (' + pct(gls[j], st.games) + ')'; } });
+    $('#games-sub').textContent = 'Hands needed for a team to reach ' + cfg.target + ' marks.';
+    $('#games-foot').textContent = 'Average ' + (H / st.games).toFixed(1) + ' hands per game. Shutouts (' + cfg.target + '–0): ' + pct(st.shutouts, st.games) + '. First shaker’s team won ' + pct(st.firstDealerWins, st.games) + '.';
+  }
+  // summary table
+  var t = '<thead><tr><th>Contract</th><th>Hands</th><th>Share</th><th>Made</th><th>Avg marks</th><th>Marks won</th><th>Marks lost</th><th>Net per hand</th></tr></thead><tbody>';
+  for (i = 0; i < 8; i++) {
+    if (!en[i] && !st.catCount[i]) continue;
+    var cc = st.catCount[i], won = st.catMarksWon[i], lost = st.catMarksLost[i], net = cc ? (won - lost) / cc : 0;
+    t += '<tr' + (cc ? '' : ' class="off"') + '><td>' + CAT[i] + '</td><td>' + fi(cc) + '</td><td>' + pct(cc, H) + '</td><td>' + pct(st.catMade[i], cc) + '</td><td>' + (cc ? ((won + lost) / cc).toFixed(2) : '—') + '</td><td>' + fi(won) + '</td><td>' + fi(lost) + '</td><td class="' + (net > 0 ? 'pos' : net < 0 ? 'neg' : '') + '">' + (cc ? (net > 0 ? '+' : '') + net.toFixed(2) : '—') + '</td></tr>';
+  }
+  var tw = st.marksBid, tl = st.marksDef;
+  t += '<tr><td><b>All contracts</b></td><td><b>' + fi(H) + '</b></td><td>100%</td><td><b>' + pct(made, H) + '</b></td><td>' + (H ? ((tw + tl) / H).toFixed(2) : '—') + '</td><td>' + fi(tw) + '</td><td>' + fi(tl) + '</td><td class="' + (tw > tl ? 'pos' : 'neg') + '">' + (H ? ((tw - tl) / H > 0 ? '+' : '') + ((tw - tl) / H).toFixed(2) : '—') + '</td></tr>';
+  $('#summary').innerHTML = t + '</tbody>';
+}
+
+/* ---------- sample deal ---------- */
+function contractText(c, bidder) {
+  if (!c) return 'Pass';
+  var mk = c.marks + ' mark' + (c.marks === 1 ? '' : 's');
+  if (c.kind === 'pts') return c.value + ' · ' + TRUMP_LC[c.T <= 7 ? c.T : 8];
+  if (c.kind === 'all') return mk + ' · ' + TRUMP_LC[c.T <= 7 ? c.T : 8];
+  if (c.kind === 'nello') return mk + ' Nello';
+  if (c.kind === 'spot') return mk + ' Spot ' + c.N;
+  return mk + ' ' + (c.kind === 'splash' ? 'Splash' : 'Plunge');
+}
+function sortHand(mask) {
+  var a = []; for (var i = 0; i < 28; i++) if ((mask >> i) & 1) a.push(i);
+  return a.sort(function (x, y) { return (E.HI[y] * 7 + E.LO[y]) - (E.HI[x] * 7 + E.LO[x]); });
+}
+function renderDeal() {
+  var cfg = readCfg();
+  var tr = E.sampleHand(cfg, (Math.random() * 4294967295) >>> 0);
+  var el = $('#deal');
+  if (!tr || !tr.contract) { el.innerHTML = '<div class="empty">Every player passed on the hands tried. Shake again.</div>'; return; }
+  var u = window.innerWidth < 480 ? 17 : 20;
+  var s = '<div class="hands">';
+  for (var p = 0; p < 4; p++) {
+    var seat = (tr.dealer + 1 + p) & 3;
+    var role = seat === tr.bidder ? 'Bidder' : (seat === ((tr.bidder + 2) & 3) ? 'Partner' : 'Opponent');
+    s += '<div class="hand' + (seat === tr.bidder ? ' bidder' : '') + '"><div class="who">' + SEAT[seat] + (seat === tr.dealer ? ' · shaker' : '') + '<small>' + role + '</small></div><div class="tiles">' + sortHand(tr.hands[seat]).map(function (d) { return dtile(d, u); }).join('') + '</div></div>';
+  }
+  s += '</div><div class="bids">';
+  tr.bids.forEach(function (b) {
+    var e = b.ev, odds = [];
+    odds.push('Best point bid at 30: ' + Math.round(e.best30 * 100) + '%');
+    if (cfg.marks) odds.push('Take all with trump: ' + Math.round(e.all * 100) + '%');
+    if (cfg.nello) odds.push('Nello: ' + Math.round(Math.max(0, e.nello) * 100) + '%');
+    if (cfg.spot) odds.push('Spot ' + e.spotN + ': ' + Math.round(Math.max(0, e.spot) * 100) + '%');
+    if (e.splash >= 0) odds.push('Splash: ' + Math.round(e.splash * 100) + '%');
+    if (e.plunge >= 0) odds.push('Plunge: ' + Math.round(e.plunge * 100) + '%');
+    s += '<span class="bid" data-tip="' + esc('<b>' + SEAT[b.seat] + '’s odds</b><br>' + odds.join('<br>')) + '">' + SEAT[b.seat] + ': <b>' + esc(contractText(b.act)) + '</b></span>';
+  });
+  s += '</div>';
+  var c = tr.contract, who = SEAT[tr.bidder], desc;
+  if (c.kind === 'pts') desc = who + ' bid ' + c.value + ' with ' + TRUMP_LC[c.T <= 7 ? c.T : 8] + ' as trump and the team took ' + tr.pts + ' points.';
+  else if (c.kind === 'all') desc = who + ' bid ' + contractText(c) + ' and needed every trick; the team took ' + tr.pts + ' of 42 points.';
+  else if (c.kind === 'nello') desc = who + ' bid ' + c.marks + ' mark' + (c.marks > 1 ? 's' : '') + ' Nello with doubles ' + ({ 9: 'as their own suit', 8: 'high', 10: 'low' })[c.T] + ' and had to lose every trick.';
+  else if (c.kind === 'spot') desc = who + ' bid ' + contractText(c) + ': everyone plays the domino closest to ' + c.N + ', and the bidding team needed every trick.';
+  else desc = who + ' bid ' + contractText(c) + ' holding ' + sortHand(tr.hands[tr.bidder]).filter(function (d) { return E.HI[d] === E.LO[d]; }).length + ' doubles; partner called ' + TRUMP_LC[c.T <= 7 ? c.T : 8] + '.';
+  s += '<p class="verdict"><span class="tag ' + (tr.made ? 'made' : 'set') + '">' + (tr.made ? 'Made' : 'Set') + '</span>' + esc(desc) + ' Estimated chance when bid: ' + Math.round(c.p * 100) + '%.</p>';
+  s += '<div class="tricks">';
+  tr.tricks.forEach(function (t, i) {
+    s += '<div class="trick"><span>Trick ' + (i + 1) + '</span><div class="tiles">';
+    for (var k = 0; k < t.doms.length; k++) {
+      var win = t.seats[k] === t.winner;
+      s += '<span class="t' + (win ? ' win' : '') + '">' + dtile(t.doms[k], 15, win ? ' style="outline:2px solid var(--s1);outline-offset:1px;border-radius:4px"' : '') + '<span>' + SEAT[t.seats[k]][0] + '</span></span>';
+    }
+    var teamWin = ((t.winner ^ tr.bidder) & 1) === 0 ? 'Bidders' : 'Opponents';
+    s += '</div><span class="r">' + teamWin + (t.pts ? ' +' + t.pts : '') + '</span></div>';
+  });
+  s += '</div>';
+  el.innerHTML = s;
+}
+
+/* ---------- running ---------- */
+var job = null;
+var workerURL = null;
+function makeWorkerURL() {
+  if (workerURL) return workerURL;
+  var glue = '\nself.onmessage=function(e){var d=e.data;var R=new Engine42.Runner(d.cfg,d.seed);function loop(){var want=d.n-R.done;if(want<=0){self.postMessage({type:"done",stats:R.st,done:R.done});return;}R.step(want,180);self.postMessage({type:"progress",stats:R.st,done:R.done});setTimeout(loop,0);}loop();};';
+  workerURL = URL.createObjectURL(new Blob([$('#engine-src').textContent + glue], { type: 'text/javascript' }));
+  return workerURL;
+}
+function seed() { try { var a = new Uint32Array(1); crypto.getRandomValues(a); return a[0]; } catch (e) { return (Math.random() * 4294967295) >>> 0; } }
+function stopJob() {
+  if (!job) return;
+  job.stopped = true;
+  job.workers.forEach(function (w) { try { w.terminate(); } catch (e) {} });
+  clearTimeout(job.watch); clearTimeout(job.timer);
+}
+function startJob(n, sample) {
+  stopJob();
+  var cfg = readCfg();
+  var cores = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4)));
+  var W = Math.max(1, Math.min(cores, Math.floor(n / 50)));
+  job = { cfg: cfg, n: n, sample: !!sample, t0: performance.now(), parts: [], done: [], fin: 0, workers: [], W: W, stopped: false, gotMsg: false };
+  var j = job;
+  setRunning(true);
+  var shares = []; for (var i = 0; i < W; i++) shares.push(Math.floor(n / W) + (i < n % W ? 1 : 0));
+  try {
+    var url = makeWorkerURL();
+    shares.forEach(function (sh, i) {
+      var w = new Worker(url);
+      w.onmessage = function (e) {
+        if (j.stopped) return;
+        j.gotMsg = true;
+        j.parts[i] = e.data.stats; j.done[i] = e.data.done;
+        if (e.data.type === 'done') { j.fin++; if (j.fin === W) finish(j); }
+        schedule(j);
+      };
+      w.onerror = function (ev) { ev.preventDefault && ev.preventDefault(); if (!j.gotMsg && !j.stopped) fallback(j); };
+      w.postMessage({ cfg: cfg, n: sh, seed: seed() });
+      j.workers.push(w);
+    });
+    j.watch = setTimeout(function () { if (!j.gotMsg && !j.stopped) fallback(j); }, 4000);
+  } catch (e) { fallback(j); }
+}
+function fallback(j) {
+  j.workers.forEach(function (w) { try { w.terminate(); } catch (e) {} });
+  j.workers = []; j.parts = []; j.done = []; j.W = 1;
+  var R = new E.Runner(j.cfg, seed());
+  (function tick() {
+    if (j.stopped) return;
+    R.step(j.n - R.done, 40);
+    j.parts[0] = R.st; j.done[0] = R.done;
+    schedule(j);
+    if (R.done >= j.n) { finish(j); return; }
+    j.timer = setTimeout(tick, 0);
+  })();
+}
+var renderPending = false;
+function merged(j) { var t = E.newStats(); j.parts.forEach(function (p) { if (p) E.mergeStats(t, p); }); return t; }
+function schedule(j) {
+  updateProgress(j);
+  if (renderPending) return;
+  renderPending = true;
+  setTimeout(function () { renderPending = false; if (job === j && !j.stopped) render(merged(j), j.cfg, { running: !j.finished, sample: j.sample }); }, 350);
+}
+function doneCount(j) { return j.done.reduce(function (a, b) { return a + (b || 0); }, 0); }
+function updateProgress(j) {
+  var d = doneCount(j), f = Math.min(1, d / j.n), el = (performance.now() - j.t0) / 1000;
+  $('#prog').style.width = (f * 100).toFixed(1) + '%';
+  var rate = el > 0 ? d / el : 0, left = rate > 0 ? (j.n - d) / rate : 0;
+  var u = j.cfg.unit === 'games' ? 'games' : 'hands';
+  $('#prog-text').textContent = j.finished ? 'Done: ' + fi(d) + ' ' + u + ' in ' + el.toFixed(1) + ' s' + (j.W > 1 ? ' on ' + j.W + ' threads' : '') : fi(d) + ' / ' + fi(j.n) + ' ' + u + ' · ' + fi(rate) + '/s' + (d > 0 ? ' · ' + fmtTime(left) + ' left' : '');
+}
+function fmtTime(s) { s = Math.ceil(s); return s < 60 ? s + ' s' : Math.floor(s / 60) + ' min ' + (s % 60) + ' s'; }
+function finish(j) {
+  j.finished = true;
+  clearTimeout(j.watch);
+  j.workers.forEach(function (w) { try { w.terminate(); } catch (e) {} });
+  setRunning(false);
+  updateProgress(j);
+  render(merged(j), j.cfg, { running: false, sample: j.sample });
+}
+function setRunning(on) {
+  var b = $('#run');
+  b.textContent = on ? 'Stop' : 'Run simulation';
+  b.classList.toggle('stop', on);
+}
+$('#run').addEventListener('click', function () {
+  if (job && !job.finished && !job.stopped) {
+    stopJob(); setRunning(false);
+    var j = job; j.finished = true;
+    $('#prog-text').textContent = 'Stopped at ' + fi(doneCount(j)) + ' ' + (j.cfg.unit === 'games' ? 'games' : 'hands') + '.';
+    render(merged(j), j.cfg, { running: false });
+    return;
+  }
+  startJob(clampN(), false);
+});
+
+/* ---------- controls wiring ---------- */
+$('#n-slider').addEventListener('input', function () { $('#n-count').value = sliderToN(+this.value); saveSettings(); });
+$('#n-count').addEventListener('change', function () { var v = clampN(); $('#n-slider').value = nToSlider(v); saveSettings(); });
+document.querySelectorAll('.chip[data-n]').forEach(function (b) { b.addEventListener('click', function () { $('#n-count').value = b.dataset.n; $('#n-slider').value = nToSlider(+b.dataset.n); saveSettings(); }); });
+$('#u-hands').addEventListener('click', function () { setUnit('hands'); });
+$('#u-games').addEventListener('click', function () { setUnit('games'); });
+function syncOutputs() { $('#b-conf-o').textContent = $('#b-conf').value + '%'; $('#b-jump-o').textContent = $('#b-jump').value + '%'; }
+IDS.forEach(function (id) { var el = document.getElementById(id); el.addEventListener('change', function () { syncOutputs(); saveSettings(); }); el.addEventListener('input', syncOutputs); });
+$('#deal-again').addEventListener('click', renderDeal);
+$('#r-spotnums').addEventListener('click', function (e) {
+  var b = e.target.closest('button[data-n]'); if (!b) return;
+  var n = +b.dataset.n, i = spotSet.indexOf(n);
+  if (i >= 0) spotSet.splice(i, 1); else spotSet.push(n);
+  spotSet.sort(function (x, y) { return x - y; });
+  drawSpotNums(); saveSettings();
+  var f = document.getElementById('spot-n' + n); if (f) f.focus();
+});
+document.querySelectorAll('.chip[data-spot]').forEach(function (b) {
+  b.addEventListener('click', function () {
+    spotSet = b.dataset.spot === 'all' ? ALL_SPOT.slice() : b.dataset.spot.split(',').map(Number);
+    if (!$('#c-spot').checked) $('#c-spot').checked = true;
+    drawSpotNums(); saveSettings();
+  });
+});
+var rz = null;
+window.addEventListener('resize', function () { clearTimeout(rz); rz = setTimeout(function () { if (lastStats) render(lastStats, lastCfg, lastMeta); }, 150); });
+
+loadSettings();
+drawSpotNums();
+syncOutputs();
+$('#n-slider').value = nToSlider(clampN());
+render(E.newStats(), readCfg(), { sample: true });
+renderDeal();
+startJob(400, true);
+})();
+</script>
+</body>
+</html>
